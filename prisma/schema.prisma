@@ -1,0 +1,198 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  runtime  = "cloudflare"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                   String   @id @default(cuid())
+  username             String   @unique
+  email                String   @unique
+  passwordHash         String
+  emailVerified        Boolean  @default(false)
+  profileImageUrl      String?
+  themePreference     String   @default("system")
+  languagePreference  String   @default("system")
+  // Denormalized snapshot of the user's current plan for fast reads;
+  // Subscription below is the source of truth / billing history.
+  subscriptionStatus   String?
+  subscriptionPlan     String?
+  subscriptionRenewsAt DateTime?
+  createdAt            DateTime @default(now())
+
+  personas             Persona[]
+  subscriptions        Subscription[]
+  pendingPasswordChange PendingPasswordChange?
+  usernameChanges       UsernameChange[]
+  faqQuestions          FaqQuestion[]
+  communityMessages     CommunityMessage[]
+}
+
+// Mirrors PendingRegistration's shape/security (hashed code, resend
+// cooldown) but for an existing user requesting a password change rather
+// than a new signup — the new password is staged here and only applied to
+// User.passwordHash once the emailed code is confirmed.
+model PendingPasswordChange {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newPasswordHash       String
+  verificationCodeHash  String
+  expiresAt             DateTime
+  resendAvailableAt     DateTime
+  createdAt             DateTime @default(now())
+}
+
+// One row per successful username change, purely to enforce the rolling
+// "2 changes per 24h" limit — count rows within the last 24h rather than a
+// fixed-window counter, so the limit can't be gamed around a reset boundary.
+model UsernameChange {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Retained only to enforce the support-form rate limit and to provide a
+// minimal audit trail for messages accepted by the service. The question is
+// delivered by email; it is intentionally not duplicated in this table.
+model FaqQuestion {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Registration is deliberately staged here instead of creating an unverified
+// User. That keeps email addresses and usernames available until their owner
+// has proved control of the inbox.
+model PendingRegistration {
+  id                    String   @id @default(cuid())
+  username              String   @unique
+  email                 String   @unique
+  passwordHash          String
+  verificationCodeHash  String
+  cancellationTokenHash String?
+  expiresAt             DateTime
+  resendAvailableAt     DateTime
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model Persona {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  // e.g. draft | processing | ready | failed — no enum yet, kept loose until
+  // the persona-creation pipeline is designed.
+  status    String   @default("draft")
+  // `processing` keeps a persona unavailable between initial upload completion
+  // and the future training job finishing. The current demo derives progress
+  // from this timestamp; a real worker can later update the same fields.
+  trainingStartedAt DateTime?
+  // Chosen once during creation. It will later select the live-avatar model,
+  // but remains immutable after the persona exists.
+  avatarStyle       String   @default("realistic")
+  // Real per-persona training state on the standalone LiveTalking/CosyVoice
+  // GPU services (back_end/services/livetalking.ts). liveAvatarId is the
+  // MuseTalk avatar_id once training succeeds — null until then, so the
+  // conversation view knows there's nothing to connect to yet rather than
+  // silently falling back to a mismatched avatar. Re-running training (a new
+  // upload, or a delete that leaves assets behind) reuses the same
+  // liveAvatarId, overwriting the previous trained avatar on the GPU box.
+  liveAvatarId         String?
+  avatarTrainingTaskId String?
+  avatarTrainingError  String?  @db.Text
+  // The single audio asset CosyVoice clones this persona's voice from, plus
+  // its transcript (needed as CosyVoice's own zero-shot prompt_text).
+  voiceRefAssetId      String?
+  voiceRefTranscript   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  assets       PersonaAsset[]
+  chatMessages ChatMessage[]
+
+  @@index([userId])
+}
+
+// A single row stores cumulative public counters. Unlike counting live rows,
+// these values never decrease when a persona or message is deleted.
+model PlatformMetric {
+  id                String   @id
+  personasCreated   Int      @default(0)
+  messagesExchanged Int      @default(0)
+  updatedAt         DateTime @updatedAt
+}
+
+// Short-lived, account-authenticated community conversation. Rows are pruned
+// every time the API is read or written, keeping only the latest 24 hours.
+model CommunityMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.VarChar(200)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+enum AssetType {
+  image
+  video
+  audio
+  text
+  social_link
+  facial_scan
+}
+
+model PersonaAsset {
+  id        String    @id @default(cuid())
+  personaId String
+  persona   Persona   @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  type      AssetType
+  url       String
+  metadata  Json?
+  createdAt DateTime  @default(now())
+
+  @@index([personaId])
+}
+
+model Subscription {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan               String
+  status             String
+  currentPeriodEnd   DateTime?
+  provider           String
+  providerCustomerId String
+
+  @@index([userId])
+}
+
+// Placeholder for the future chat feature — no inference logic yet.
+model ChatMessage {
+  id        String   @id @default(cuid())
+  personaId String
+  persona   Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([personaId])
+}

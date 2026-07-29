@@ -1,0 +1,6 @@
+ALTER TABLE "Persona"
+ADD COLUMN IF NOT EXISTS "liveAvatarId" TEXT,
+ADD COLUMN IF NOT EXISTS "avatarTrainingTaskId" TEXT,
+ADD COLUMN IF NOT EXISTS "avatarTrainingError" TEXT,
+ADD COLUMN IF NOT EXISTS "voiceRefAssetId" TEXT,
+ADD COLUMN IF NOT EXISTS "voiceRefTranscript" TEXT;

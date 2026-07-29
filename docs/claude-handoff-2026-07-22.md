@@ -1,0 +1,22 @@
+# UI changes — 2026-07-22
+
+- Registered the semantic light/dark color tokens in `app/globals.css` and transitions them over 280 ms when `<html data-theme>` changes. The effect respects `prefers-reduced-motion`.
+- Constrained only the account-settings modal to the viewport (`100dvh - 3rem`) and made its content vertically scrollable, keeping a visible margin above and below the dialog.
+- Changed the Appearance control labels to accessible buttons. Clicking Light, Dark, or System now animates the thumb directly to that option; dragging the current thumb still works.
+- Moved the Account Settings scrollbar into an internal content area so it stays within the modal beneath the fixed title.
+- Added a compact neutral `Go Back` control to the Order Teddy placeholder, returning to `/dashboard`.
+- Hid the global dock on `/dashboard` and its nested routes. The dashboard sidebar now ends with `Return Home`, and the dashboard has matching top and bottom page margins.
+- Hardened logout against stale `/api/auth/me` responses. Logging out clears client auth state, sends users on dashboard routes to `/`, and refreshes other routes so account UI disappears immediately.
+- Made the dashboard navigation collapsible on narrow viewports. Its profile/header remains visible, the menu is initially collapsed, and selecting a persona collapses it again so the conversation uses most of the screen.
+- Restyled the narrow dashboard menu as an animated panel below the profile bar. It overlays the persona view and adds a dismissible dark, blurred backdrop while open, matching the dock menu and modal treatment.
+- Standardized visible error and warning feedback to red across authentication, account settings, checkout, pricing-limit prompts, and persona setup. Interactive links and buttons remain blue.
+- Restricted profile-picture uploads to PNG/JPG/JPEG files no larger than 1MB, validated in both the file picker and server route with red feedback for invalid selections.
+- Made the persona upload wizard a wider, viewport-bounded modal with an internal scroll area and visible margins.
+- Confirmed persona, asset, and chat reads/writes are session-scoped by `persona.userId`; added authenticated APIs to list and permanently delete a persona's assets or entire persona, including storage-media cleanup and cascading chat deletion.
+- Added persona overflow controls (visible on hover or selection) and a wide manager dialog with a collapsible upload list, name/date sorting, per-file and multi-select permanent deletion confirmations, and a three-second protected persona-deletion confirmation.
+- Added the full original upload set to the persona manager (photos, video, facial scan, audio upload/recording, social links, and documents), using the same subscription gates and refreshing the upload list after additions.
+- Hardened persona deletion further: after the three-second safeguard, the confirmation dialog requires the account's current password; the deletion API verifies it server-side before removing data.
+- Refined deletion authorization: dismissing the initial upload wizard explicitly discards only its unfinished `draft` without requiring a password; deleting any saved/active persona still requires password confirmation.
+- Made the dashboard remove a deleted persona from its visible list immediately, clear it as the active conversation, and render exactly one right-side pane: the selected persona or the default empty state.
+- Replaced simple social-link storage with a server-side public-profile importer for Instagram, Facebook, X/Twitter, YouTube, and Xiaohongshu. It validates allowlisted HTTPS profile links, safely captures compact public page metadata into a `platform.account` JSON asset, and refreshes the persona file list.
+- Treat newly named personas as temporary drafts while the upload wizard is open: closing or dismissing the wizard now deletes the draft and uploaded media; only Done finalizes it. Dashboard and chat panels now use viewport-bounded layouts with internal scrolling so long menus or message histories do not grow the page.

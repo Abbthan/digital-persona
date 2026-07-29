@@ -1,0 +1,44 @@
+{
+  "name": "echo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "cf-typegen": "wrangler types --include-runtime false --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "prepare-static-assets": "node scripts/prepare-static-assets.mjs",
+    "preview": "opennextjs-cloudflare build && npm run prepare-static-assets && wrangler dev",
+    "deploy": "opennextjs-cloudflare build && npm run prepare-static-assets && OPEN_NEXT_DEPLOY=true npx wrangler deploy"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@supabase/supabase-js": "^2.110.7",
+    "bcryptjs": "^3.0.3",
+    "iron-session": "^8.0.4",
+    "motion": "^12.42.2",
+    "next": "16.2.11",
+    "nodemailer": "^9.0.3",
+    "pg": "^8.22.0",
+    "pg-cloudflare": "1.4.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.2",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.11",
+    "prisma": "^7.8.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.113.0"
+  }
+}

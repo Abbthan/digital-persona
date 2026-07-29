@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+ADD COLUMN IF NOT EXISTS "languagePreference" TEXT NOT NULL DEFAULT 'system';

@@ -1,0 +1,289 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { CreateLiveSessionResponseBody } from "@/back_end/api/personas/[id]/live-session/route";
+
+// The actual WebRTC media (video/audio) connects browser-to-GPU-box
+// directly once negotiated — Cloudflare Workers can't hold a stateful
+// media session, so that part has to be direct. But the signaling calls
+// that set it up (/offer, /human) go through this app's own HTTPS routes
+// (live-session/offer, live-session/human) rather than fetch()ing
+// LiveTalking's plain-HTTP box directly — browsers block that as mixed
+// content from an HTTPS page. Those routes mint their own short-lived
+// HMAC-signed token server-side; LiveTalking's app.py checks it since it
+// has no auth of its own.
+//
+// live-session returns this persona's own trained MuseTalk avatar_id and
+// CosyVoice voice reference when training has produced one (see
+// back_end/services/persona-training.ts). If neither exists yet — no
+// video/facial-scan or audio was ever uploaded — this falls back to the
+// server's generic demo avatar/voice rather than failing, and says so.
+
+// A TCP load balancer can take longer than a direct STUN lookup to establish
+// a TURN allocation. Never send LiveTalking an SDP offer with zero candidates:
+// that creates a session which can only time out. Leave enough room for the
+// relay allocation plus the ensuing ICE/DTLS handshake.
+const ICE_GATHERING_TIMEOUT_MS = 25_000;
+const CONNECT_TIMEOUT_MS = 65_000;
+
+type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
+
+type LiveTalkingAvatarProps = {
+  personaId: string;
+  /** Bumps whenever a new persona reply should be spoken aloud by the avatar. */
+  latestReply: { id: string; content: string; liveSpeechQueued?: boolean } | null;
+  /** Gives the parent the session as soon as signaling has created it. */
+  onSessionReady?: (sessionId: string) => void;
+  /** Lets the dashboard place the live stream in either its compact or chat-area layout. */
+  className?: string;
+};
+
+export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, className }: LiveTalkingAvatarProps) {
+  const [status, setStatus] = useState<ConnectionStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [connectAttempt, setConnectAttempt] = useState(0);
+  const [usingFallbackAvatar, setUsingFallbackAvatar] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const sessionRef = useRef<{ sessionid: string } | null>(null);
+  const spokenReplyIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    let cancelled = false;
+    let connected = false;
+    // Reset for this connection attempt (personaId or a manual retry) — an
+    // external-system sync, not derivable from render state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStatus("connecting");
+    setError(null);
+
+    async function connect() {
+      console.info("[live-avatar] connecting", { personaId, attempt: connectAttempt + 1 });
+      const tokenResponse = await fetch(`/api/personas/${personaId}/live-session`, { method: "POST" });
+      const tokenResult = (await tokenResponse.json()) as CreateLiveSessionResponseBody;
+      if (cancelled) return;
+      if (!tokenResult.ok) throw new Error(tokenResult.error);
+      setUsingFallbackAvatar(!tokenResult.avatarId);
+      console.info("[live-avatar] session configuration received", {
+        personaId,
+        hasAvatar: Boolean(tokenResult.avatarId),
+        hasVoiceReference: Boolean(tokenResult.refAudio),
+        usesTurn: Boolean(tokenResult.turn),
+      });
+
+      // When TURN is configured, use it exclusively. Waiting on a public STUN
+      // server that is blocked or slow in the visitor's network held ICE in
+      // its gathering phase until the old connection timeout elapsed. Relay
+      // mode also prevents the browser from choosing the A800 pod's private
+      // 172.18.x.x host candidate over the routable TURN candidate.
+      const iceServers: RTCIceServer[] = tokenResult.turn
+        ? [{
+          urls: tokenResult.turn.urls,
+          username: tokenResult.turn.username,
+          credential: tokenResult.turn.credential,
+        }]
+        : [{ urls: "stun:stun.l.google.com:19302" }];
+      const pc = new RTCPeerConnection({
+        iceServers,
+        ...(tokenResult.turn ? { iceTransportPolicy: "relay" as RTCIceTransportPolicy } : {}),
+      });
+      pcRef.current = pc;
+      pc.addEventListener("icecandidate", (event) => {
+        // Candidate metadata is enough to diagnose TURN/STUN routing without
+        // writing a visitor's private IP address into their browser console.
+        if (event.candidate) {
+          console.info("[live-avatar] ICE candidate gathered", {
+            personaId,
+            type: event.candidate.type,
+            protocol: event.candidate.protocol,
+          });
+        } else {
+          console.info("[live-avatar] ICE gathering completed", { personaId });
+        }
+      });
+      pc.addEventListener("iceconnectionstatechange", () => {
+        console.info("[live-avatar] ICE state", { personaId, state: pc.iceConnectionState });
+      });
+      pc.addEventListener("icecandidateerror", (event) => {
+        console.error("[live-avatar] ICE candidate error", {
+          personaId,
+          errorCode: event.errorCode,
+          url: event.url,
+        });
+      });
+      pc.addEventListener("track", (event) => {
+        console.info("[live-avatar] media track received", { personaId, kind: event.track.kind });
+        if (event.track.kind === "video" && videoRef.current) videoRef.current.srcObject = event.streams[0];
+        if (event.track.kind === "audio" && audioRef.current) audioRef.current.srcObject = event.streams[0];
+      });
+      // The SDP exchange succeeding only means signaling worked — the actual
+      // media path (ICE/DTLS) can still fail afterward (e.g. no viable
+      // route between the two networks), which used to leave the UI stuck
+      // showing "connected" over a blank video with no indication anything
+      // was wrong. This is the real signal to key off instead.
+      pc.addEventListener("connectionstatechange", () => {
+        if (cancelled) return;
+        if (pc.connectionState === "connected") {
+          connected = true;
+          console.info("[live-avatar] connected", { personaId });
+          setStatus("connected");
+        } else if (pc.connectionState === "failed") {
+          connected = false;
+          console.error("[live-avatar] peer connection failed", { personaId });
+          setStatus("error");
+          setError("Lost the connection to the avatar server.");
+        }
+      });
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addTransceiver("audio", { direction: "recvonly" });
+
+      const offer = await pc.createOffer();
+      // Register before setLocalDescription starts gathering. On some
+      // browsers a local TURN allocation can produce its first candidate
+      // before the awaited call yields back to this function.
+      const iceReady = waitForIceGathering(pc, ICE_GATHERING_TIMEOUT_MS);
+      await pc.setLocalDescription(offer);
+      // LiveTalking receives a non-trickle SDP offer. Once the first relay
+      // candidate arrives it is already embedded in localDescription and is
+      // enough to negotiate this single bundled audio/video stream. Some
+      // browsers keep the global gathering state open indefinitely, so do not
+      // wait for every optional probe to finish.
+      const hasIceCandidate = await iceReady;
+      if (cancelled) return;
+      if (!hasIceCandidate || !pc.localDescription?.sdp.includes("\na=candidate:")) {
+        throw new Error("Couldn't establish a secure media relay. Please retry.");
+      }
+
+      const offerResponse = await fetch(`/api/personas/${personaId}/live-session/offer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sdp: pc.localDescription?.sdp,
+          type: pc.localDescription?.type,
+          ...(tokenResult.avatarId ? { avatar: tokenResult.avatarId } : {}),
+          ...(tokenResult.refAudio ? { refaudio: tokenResult.refAudio } : {}),
+          ...(tokenResult.refText ? { reftext: tokenResult.refText } : {}),
+        }),
+      });
+      if (!offerResponse.ok) throw new Error(`Avatar server returned ${offerResponse.status}.`);
+      const answer = (await offerResponse.json()) as { sdp: string; type: RTCSdpType; sessionid: string };
+      if (cancelled) {
+        pc.close();
+        return;
+      }
+      await pc.setRemoteDescription(answer);
+      sessionRef.current = { sessionid: answer.sessionid };
+      console.info("[live-avatar] signaling completed", { personaId, sessionId: answer.sessionid });
+      onSessionReady?.(answer.sessionid);
+      // Signaling is done; connectionstatechange above handles the actual
+      // "connected" transition (and any later failure) from here.
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled && !connected) {
+        cancelled = true;
+        pcRef.current?.close();
+        setStatus("error");
+        setError("Couldn't reach the avatar server in time.");
+      }
+    }, CONNECT_TIMEOUT_MS);
+
+    connect().catch((connectError) => {
+      if (cancelled) return;
+      console.error("[live-avatar] connection error", { personaId, error: connectError });
+      setStatus("error");
+      setError(connectError instanceof Error ? connectError.message : "Couldn't connect to the avatar server.");
+    });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      pcRef.current?.close();
+      pcRef.current = null;
+      sessionRef.current = null;
+    };
+  }, [personaId, connectAttempt, onSessionReady]);
+
+  const retry = useCallback(() => setConnectAttempt((current) => current + 1), []);
+
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (status !== "connected" || !session || !latestReply) return;
+    if (spokenReplyIdsRef.current.has(latestReply.id)) return;
+    spokenReplyIdsRef.current.add(latestReply.id);
+
+    // The message endpoint now dispatches speech server-to-server in the
+    // background when it was given this session id. Retain this request only
+    // for messages sent while the WebRTC session was still connecting.
+    if (latestReply.liveSpeechQueued) return;
+
+    fetch(`/api/personas/${personaId}/live-session/human`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionid: session.sessionid, text: latestReply.content, type: "echo" }),
+    }).catch(() => {
+      // Non-fatal — the reply is already shown as a text bubble either way.
+    });
+  }, [status, latestReply, personaId]);
+
+  return (
+    <div className={`relative flex w-full flex-shrink-0 items-center justify-center overflow-hidden bg-surface-tile-1 ${className ?? "h-48 border-b border-hairline"}`}>
+      <video ref={videoRef} autoPlay playsInline muted={false} className="h-full w-full object-cover" />
+      <audio ref={audioRef} autoPlay />
+      {status === "connected" && usingFallbackAvatar && (
+        <p className="absolute bottom-xxs left-xs right-xs font-text text-fine-print text-white/80">
+          No trained likeness yet — showing a placeholder avatar. Add a video or facial scan to train this persona&apos;s own.
+        </p>
+      )}
+      {status !== "connected" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-xs bg-surface-tile-1">
+          <p className="font-text text-caption text-body-muted">
+            {status === "error" ? error ?? "Connection failed." : "Connecting…"}
+          </p>
+          {status === "error" && (
+            <button
+              type="button"
+              onClick={retry}
+              className="font-text text-caption-strong text-primary transition-transform duration-150 ease-out active:scale-95"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function waitForIceGathering(pc: RTCPeerConnection, maxWaitMs: number): Promise<boolean> {
+  if (pc.iceGatheringState === "complete" || pc.localDescription?.sdp.includes("\na=candidate:")) {
+    return Promise.resolve(Boolean(pc.localDescription?.sdp.includes("\na=candidate:")));
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (hasCandidate: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      pc.removeEventListener("icegatheringstatechange", check);
+      pc.removeEventListener("icecandidate", candidateReady);
+      resolve(hasCandidate);
+    };
+    function check() {
+      if (pc.iceGatheringState === "complete") {
+        finish(Boolean(pc.localDescription?.sdp.includes("\na=candidate:")));
+      }
+    }
+    function candidateReady(event: RTCPeerConnectionIceEvent) {
+      if (event.candidate) finish(true);
+    }
+    const timeoutId = window.setTimeout(
+      () => finish(Boolean(pc.localDescription?.sdp.includes("\na=candidate:"))),
+      maxWaitMs,
+    );
+    pc.addEventListener("icegatheringstatechange", check);
+    pc.addEventListener("icecandidate", candidateReady);
+  });
+}

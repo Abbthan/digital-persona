@@ -1,0 +1,345 @@
+@import "tailwindcss";
+
+/* Register the semantic colors so a data-theme change can interpolate the
+ * inherited custom properties. Components already consume these variables
+ * through Tailwind utilities, so the whole interface fades between light and
+ * dark without adding transitions to each individual component. */
+@property --color-primary { syntax: "<color>"; inherits: true; initial-value: #0ea5e9; }
+@property --color-primary-focus { syntax: "<color>"; inherits: true; initial-value: #38bdf8; }
+@property --color-ink { syntax: "<color>"; inherits: true; initial-value: #1d1d1f; }
+@property --color-body { syntax: "<color>"; inherits: true; initial-value: #1d1d1f; }
+@property --color-ink-muted-80 { syntax: "<color>"; inherits: true; initial-value: #333333; }
+@property --color-ink-muted-48 { syntax: "<color>"; inherits: true; initial-value: #7a7a7a; }
+@property --color-divider-soft { syntax: "<color>"; inherits: true; initial-value: #f0f0f0; }
+@property --color-hairline { syntax: "<color>"; inherits: true; initial-value: #e0e0e0; }
+@property --color-canvas { syntax: "<color>"; inherits: true; initial-value: #ffffff; }
+@property --color-canvas-parchment { syntax: "<color>"; inherits: true; initial-value: #f5f5f7; }
+@property --color-surface-pearl { syntax: "<color>"; inherits: true; initial-value: #fafafc; }
+@property --color-surface-chip-translucent { syntax: "<color>"; inherits: true; initial-value: #d2d2d7; }
+
+/*
+ * Apple design tokens, extracted from awesome-design-md/design-md/apple/DESIGN.md
+ * (mirrored at /docs/design-system.md). This is the single source of truth for
+ * color, type, spacing, radius, shadow and motion in this project — see that
+ * file's "Do's and Don'ts" before adding anything outside this scale.
+ *
+ * Two things the source doc calls out that are easy to miss:
+ *  - No hover states are documented, only default + active/press (scale 0.95).
+ *  - Exactly one shadow exists in the whole system (--shadow-product), reserved
+ *    for product imagery — never cards, buttons, or text.
+ */
+@theme {
+  /* SF Pro is Apple's proprietary system font and cannot be bundled. Use the
+     platform UI stack so deployments do not depend on a build-time font fetch. */
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --font-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+
+  /* Colors */
+  --color-primary: #0ea5e9;
+  --color-primary-focus: #38bdf8;
+  --color-primary-on-dark: #67ccef;
+  --color-ink: #1d1d1f;
+  --color-body: #1d1d1f;
+  --color-body-on-dark: #ffffff;
+  --color-body-muted: #cccccc;
+  --color-ink-muted-80: #333333;
+  --color-ink-muted-48: #7a7a7a;
+  --color-divider-soft: #f0f0f0;
+  --color-hairline: #e0e0e0;
+  --color-canvas: #ffffff;
+  --color-canvas-parchment: #f5f5f7;
+  --color-surface-pearl: #fafafc;
+  --color-surface-tile-1: #272729;
+  --color-surface-tile-2: #2a2a2c;
+  --color-surface-tile-3: #252527;
+  --color-surface-black: #000000;
+  --color-surface-chip-translucent: #d2d2d7;
+  --color-on-primary: #ffffff;
+  --color-on-dark: #ffffff;
+
+  /* Typography — each token bundles size + line-height + letter-spacing + weight
+     into one `text-*` utility. Pair with font-display or font-text per the table
+     in /docs/design-system.md (e.g. `font-display text-hero-display`). */
+  --text-hero-display: 56px;
+  --text-hero-display--line-height: 1.07;
+  --text-hero-display--letter-spacing: -0.28px;
+  --text-hero-display--font-weight: 600;
+
+  --text-display-lg: 40px;
+  --text-display-lg--line-height: 1.1;
+  --text-display-lg--letter-spacing: 0px;
+  --text-display-lg--font-weight: 600;
+
+  --text-display-md: 34px;
+  --text-display-md--line-height: 1.47;
+  --text-display-md--letter-spacing: -0.374px;
+  --text-display-md--font-weight: 600;
+
+  --text-lead: 28px;
+  --text-lead--line-height: 1.14;
+  --text-lead--letter-spacing: 0.196px;
+  --text-lead--font-weight: 400;
+
+  --text-lead-airy: 24px;
+  --text-lead-airy--line-height: 1.5;
+  --text-lead-airy--letter-spacing: 0px;
+  --text-lead-airy--font-weight: 300;
+
+  --text-tagline: 21px;
+  --text-tagline--line-height: 1.19;
+  --text-tagline--letter-spacing: 0.231px;
+  --text-tagline--font-weight: 600;
+
+  --text-body-strong: 17px;
+  --text-body-strong--line-height: 1.24;
+  --text-body-strong--letter-spacing: -0.374px;
+  --text-body-strong--font-weight: 600;
+
+  --text-body: 17px;
+  --text-body--line-height: 1.47;
+  --text-body--letter-spacing: -0.374px;
+  --text-body--font-weight: 400;
+
+  --text-dense-link: 17px;
+  --text-dense-link--line-height: 2.41;
+  --text-dense-link--letter-spacing: 0px;
+  --text-dense-link--font-weight: 400;
+
+  --text-caption: 14px;
+  --text-caption--line-height: 1.43;
+  --text-caption--letter-spacing: -0.224px;
+  --text-caption--font-weight: 400;
+
+  --text-caption-strong: 14px;
+  --text-caption-strong--line-height: 1.29;
+  --text-caption-strong--letter-spacing: -0.224px;
+  --text-caption-strong--font-weight: 600;
+
+  --text-button-large: 18px;
+  --text-button-large--line-height: 1;
+  --text-button-large--letter-spacing: 0px;
+  --text-button-large--font-weight: 300;
+
+  --text-button-utility: 14px;
+  --text-button-utility--line-height: 1.29;
+  --text-button-utility--letter-spacing: -0.224px;
+  --text-button-utility--font-weight: 400;
+
+  --text-fine-print: 12px;
+  --text-fine-print--line-height: 1;
+  --text-fine-print--letter-spacing: -0.12px;
+  --text-fine-print--font-weight: 400;
+
+  --text-micro-legal: 10px;
+  --text-micro-legal--line-height: 1.3;
+  --text-micro-legal--letter-spacing: -0.08px;
+  --text-micro-legal--font-weight: 400;
+
+  --text-nav-link: 12px;
+  --text-nav-link--line-height: 1;
+  --text-nav-link--letter-spacing: -0.12px;
+  --text-nav-link--font-weight: 400;
+
+  /* Spacing — 8px base unit. `md` (17px) is intentional: it's the doc's body
+     line-height rhythm constant, not a typo. Adds named utilities (p-lg, gap-xl,
+     ...) alongside Tailwind's default numeric scale. */
+  --spacing-xxs: 4px;
+  --spacing-xs: 8px;
+  --spacing-sm: 12px;
+  --spacing-md: 17px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-xxl: 48px;
+  --spacing-section: 80px;
+
+  /* Corner radius */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 18px;
+  --radius-pill: 9999px;
+
+  /* Elevation — DESIGN.md documents exactly one shadow, reserved for product
+     imagery (shadow-product). shadow-dock is a deliberate, disclosed
+     exception: Phase 1 explicitly asks for "solid white background with a
+     subtle shadow" on the floating nav dock, a component the source doc
+     doesn't cover (Apple's analyzed pages use a full-width nav, not a
+     floating one). Kept separate and much softer than shadow-product so the
+     product shadow stays visually unique. */
+  --shadow-product: 3px 5px 30px 0 rgba(0, 0, 0, 0.22);
+  --shadow-dock: 0 1px 2px 0 rgba(0, 0, 0, 0.04), 0 8px 24px 0 rgba(0, 0, 0, 0.06);
+}
+
+/*
+ * Dark mode — overrides the same semantic CSS custom properties @theme
+ * registers above (Tailwind v4 utilities reference these vars directly,
+ * e.g. `.bg-canvas { background-color: var(--color-canvas) }`), so every
+ * existing bg-canvas / text-ink / border-hairline utility across the app
+ * repaints automatically under this attribute — no component-level dark:
+ * classes needed. Toggled via data-theme on <html>, set by the inline
+ * script in app/layout.tsx (pre-paint) and lib/theme-context.tsx (runtime
+ * changes). --color-*-on-dark / --color-surface-tile-* / --color-surface-black
+ * are intentionally left alone — those back the marketing pages' permanently-
+ * dark sections, not the light/dark mode toggle.
+ */
+:root[data-theme="dark"] {
+  --color-primary: #a855f7;
+  --color-primary-focus: #c084fc;
+  --color-primary-on-dark: #c084fc;
+  --color-ink: #f5f5f7;
+  --color-body: #f5f5f7;
+  --color-ink-muted-80: #d1d1d6;
+  --color-ink-muted-48: #98989d;
+  --color-divider-soft: #2c2c2e;
+  --color-hairline: #38383a;
+  --color-canvas: #000000;
+  --color-canvas-parchment: #1c1c1e;
+  --color-surface-pearl: #2c2c2e;
+  --color-surface-chip-translucent: #48484a;
+  --solid-primary-fill: #8b28e5;
+}
+
+/* The hero keeps the same fluid language in dark mode, but its base remains
+ * almost black. The restrained blue/purple blobs are deliberately much less
+ * opaque than the light-mode orange/pink mesh so they read as faint light
+ * moving under dark glass, rather than a bright second light-mode hero. */
+:root[data-theme="dark"] .hero-gradient-bg {
+  display: block;
+  background:
+    radial-gradient(ellipse 72% 68% at 12% 8%, rgba(31, 76, 186, 0.18), transparent 72%),
+    radial-gradient(ellipse 65% 62% at 84% 88%, rgba(92, 38, 180, 0.16), transparent 74%),
+    #020208 !important;
+}
+
+:root[data-theme="dark"] .hero-gradient-bg .hero-gradient-blob {
+  mix-blend-mode: screen;
+  opacity: 0.3 !important;
+}
+
+:root[data-theme="dark"] .hero-gradient-bg .hero-gradient-blob:nth-child(1) {
+  background-color: #1769ff !important;
+  opacity: 0.24 !important;
+}
+
+:root[data-theme="dark"] .hero-gradient-bg .hero-gradient-blob:nth-child(2) {
+  background-color: #7b47f4 !important;
+  opacity: 0.28 !important;
+}
+
+:root[data-theme="dark"] .hero-gradient-bg .hero-gradient-blob:nth-child(3) {
+  background-color: #3449cf !important;
+  opacity: 0.22 !important;
+}
+
+:root[data-theme="dark"] .hero-gradient-bg .hero-gradient-blob:nth-child(4) {
+  background-color: #035bd6 !important;
+  opacity: 0.18 !important;
+}
+
+:root[data-theme="dark"] .hero-gradient-bg .hero-gradient-blob:nth-child(5) {
+  background-color: #9b4dff !important;
+  opacity: 0.25 !important;
+}
+
+/* Two different multi-point paths (instead of one shared back-and-forth)
+ * so blobs don't all read as moving in the same rhythm — that's what makes
+ * this look like fluid motion rather than a handful of things bobbing in
+ * sync. Both still drift generally between the bottom-right and top-left
+ * quadrants. */
+@keyframes hero-gradient-flow-a {
+  0% {
+    transform: translate(14%, 16%) scale(1);
+  }
+  25% {
+    transform: translate(-8%, 10%) scale(1.18);
+  }
+  50% {
+    transform: translate(-16%, -14%) scale(0.92);
+  }
+  75% {
+    transform: translate(10%, -10%) scale(1.12);
+  }
+  100% {
+    transform: translate(14%, 16%) scale(1);
+  }
+}
+
+@keyframes hero-gradient-flow-b {
+  0% {
+    transform: translate(-14%, 12%) scale(1.05);
+  }
+  30% {
+    transform: translate(10%, -8%) scale(0.9);
+  }
+  60% {
+    transform: translate(16%, -18%) scale(1.16);
+  }
+  100% {
+    transform: translate(-14%, 12%) scale(1.05);
+  }
+}
+
+.hero-gradient-blob {
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.hero-gradient-blob-a {
+  animation-name: hero-gradient-flow-a;
+}
+
+.hero-gradient-blob-b {
+  animation-name: hero-gradient-flow-b;
+}
+
+:root {
+  --solid-primary-fill: #0ea5e9;
+  transition:
+    --color-primary 280ms ease-in-out,
+    --color-primary-focus 280ms ease-in-out,
+    --color-ink 280ms ease-in-out,
+    --color-body 280ms ease-in-out,
+    --color-ink-muted-80 280ms ease-in-out,
+    --color-ink-muted-48 280ms ease-in-out,
+    --color-divider-soft 280ms ease-in-out,
+    --color-hairline 280ms ease-in-out,
+    --color-canvas 280ms ease-in-out,
+    --color-canvas-parchment 280ms ease-in-out,
+    --color-surface-pearl 280ms ease-in-out,
+    --color-surface-chip-translucent 280ms ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    transition-duration: 0ms;
+  }
+
+  .frosted-primary-fill,
+  .frosted-primary-hover:hover,
+  .hero-gradient-blob {
+    animation: none;
+  }
+}
+
+body {
+  @apply bg-canvas text-ink font-text text-body;
+}
+
+.frosted-primary-fill,
+.frosted-primary-hover:hover {
+  border: 1px solid transparent;
+  background-color: var(--solid-primary-fill);
+  background-image: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  animation: none;
+}
+
+/* Tailwind's Preflight resets <button> to cursor: default (matching native
+   browser behavior) instead of cursor: pointer — every enabled button in this
+   app should show the pointer/hand cursor on hover, macOS-style. Excludes
+   :disabled so non-interactive buttons don't look clickable. */
+button:not(:disabled) {
+  cursor: pointer;
+}
