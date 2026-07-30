@@ -113,6 +113,36 @@ export async function dispatchLiveSpeech({
   if (!response.ok) throw new Error(`Avatar server returned ${response.status}.`);
 }
 
+/**
+ * Starts LiveTalking's configured relaxed action/idle state after a WebRTC
+ * session is established. It is intentionally best-effort: deployments that
+ * have not yet installed a persona idle-action clip continue to serve normal
+ * speech without failing the conversation.
+ */
+export async function setLiveAvatarIdleAction({
+  userId,
+  personaId,
+  sessionId,
+  audiotype = 0,
+}: {
+  userId: string;
+  personaId: string;
+  sessionId: string;
+  audiotype?: number;
+}): Promise<void> {
+  const serverUrl = liveTalkingServerUrl();
+  const token = await createLiveSessionToken(userId, personaId);
+  if (!serverUrl || !token) throw new Error("The live avatar server isn't configured yet.");
+
+  const response = await fetch(`${serverUrl}/set_audiotype`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ sessionid: sessionId, audiotype }),
+    signal: AbortSignal.timeout(4_000),
+  });
+  if (!response.ok) throw new Error(`Avatar action server returned ${response.status}.`);
+}
+
 // --- Server-to-server calls (avatar/voice training) -------------------------
 // Everything below runs from this backend directly against the GPU box, not
 // from the browser — same signed-token scheme, minted with a fixed "system"

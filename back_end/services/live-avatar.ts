@@ -16,6 +16,7 @@ export {
   getAvatarTrainingTask,
   isLiveTalkingConfigured,
   liveTalkingServerUrl,
+  setLiveAvatarIdleAction,
   submitAvatarTrainingJob,
   turnServerConfig,
 } from "@/back_end/services/livetalking";

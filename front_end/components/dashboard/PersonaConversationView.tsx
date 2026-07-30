@@ -22,12 +22,17 @@ type PersonaConversationViewProps = {
 
 type MicStatus = "off" | "listening" | "speaking" | "transcribing";
 
-// Voice-activity detection tuning: a pause this long ends the current
-// utterance and sends it for transcription; a blip shorter than this never
-// counts as one (coughs, mic bumps, silence between words is much shorter).
-const SPEECH_RMS_THRESHOLD = 0.03;
-const PAUSE_MS = 1500;
-const MIN_SPEECH_MS = 300;
+// Voice-activity detection tuning. The adaptive noise floor and speech-band
+// ratio prevent fans, keyboard taps, and steady background noise from being
+// treated as an utterance. A browser cannot reliably identify *which* human
+// spoke with one microphone, so echo/noise suppression is enabled at capture
+// time and the user still controls listening with the mic button.
+const MIN_SPEECH_RMS = 0.012;
+const SPEECH_NOISE_MULTIPLIER = 2.6;
+const MIN_SPEECH_BAND_RATIO = 0.38;
+const PAUSE_MS = 950;
+const MIN_SPEECH_MS = 450;
+const MAX_UTTERANCE_MS = 20_000;
 const VAD_POLL_MS = 100;
 
 function spokenReplyForLocale(content: string, personaName: string, locale: "en" | "zh") {
@@ -45,6 +50,20 @@ function computeRms(analyser: AnalyserNode, buffer: Uint8Array<ArrayBuffer>): nu
     sumSquares += normalized * normalized;
   }
   return Math.sqrt(sumSquares / buffer.length);
+}
+
+function speechBandRatio(analyser: AnalyserNode, buffer: Uint8Array<ArrayBuffer>): number {
+  analyser.getByteFrequencyData(buffer);
+  const hzPerBin = analyser.context.sampleRate / analyser.fftSize;
+  let allEnergy = 0;
+  let speechEnergy = 0;
+  for (let index = 0; index < buffer.length; index++) {
+    const energy = buffer[index] / 255;
+    allEnergy += energy;
+    const frequency = index * hzPerBin;
+    if (frequency >= 120 && frequency <= 4_000) speechEnergy += energy;
+  }
+  return allEnergy > 0 ? speechEnergy / allEnergy : 0;
 }
 
 export function PersonaConversationView({
@@ -72,8 +91,10 @@ export function PersonaConversationView({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const speakingRef = useRef(false);
+  const noiseFloorRef = useRef(0.004);
   const lastVoiceAtRef = useRef(0);
   const speechStartAtRef = useRef(0);
+  const listeningGenerationRef = useRef(0);
   const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
   const bottomRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -147,8 +168,9 @@ export function PersonaConversationView({
   // and the loop keeps listening for the next utterance without the user
   // touching the mic button again. Real transcript in, but the reply is
   // still the existing canned echo — no LLM wired up yet.
-  function enqueueTranscription(blob: Blob, mimeType: string) {
+  function enqueueTranscription(blob: Blob, mimeType: string, generation: number) {
     sendQueueRef.current = sendQueueRef.current.then(async () => {
+      if (generation !== listeningGenerationRef.current) return;
       setMicStatus((current) => (current === "off" ? current : "transcribing"));
       try {
         const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
@@ -159,7 +181,7 @@ export function PersonaConversationView({
           body: formData,
         });
         const result = (await response.json()) as TranscribeResponseBody;
-        if (result.ok && result.text.trim()) {
+        if (generation === listeningGenerationRef.current && result.ok && result.text.trim()) {
           await sendMessage(result.text.trim());
         }
       } finally {
@@ -168,18 +190,21 @@ export function PersonaConversationView({
     });
   }
 
-  function startUtteranceRecording() {
+  function startUtteranceRecording(generation: number, startedAt: number) {
     const stream = micStreamRef.current;
     if (!stream) return;
-    const recorder = new MediaRecorder(stream);
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : undefined;
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     };
     recorder.onstop = () => {
-      const durationMs = Date.now() - speechStartAtRef.current;
+      const durationMs = Date.now() - startedAt;
       if (durationMs >= MIN_SPEECH_MS && chunks.length > 0) {
-        enqueueTranscription(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }), recorder.mimeType);
+        enqueueTranscription(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }), recorder.mimeType, generation);
       }
     };
     recorder.start();
@@ -187,6 +212,7 @@ export function PersonaConversationView({
   }
 
   function stopListening() {
+    listeningGenerationRef.current += 1;
     if (vadTimerRef.current) {
       clearInterval(vadTimerRef.current);
       vadTimerRef.current = null;
@@ -208,34 +234,60 @@ export function PersonaConversationView({
 
   async function startListening() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const generation = listeningGenerationRef.current + 1;
+      listeningGenerationRef.current = generation;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      if (generation !== listeningGenerationRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       micStreamRef.current = stream;
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.5;
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      const buffer = new Uint8Array(analyser.fftSize);
+      const timeBuffer = new Uint8Array(analyser.fftSize);
+      const frequencyBuffer = new Uint8Array(analyser.frequencyBinCount);
       speakingRef.current = false;
+      noiseFloorRef.current = 0.004;
       setMicStatus("listening");
 
       vadTimerRef.current = setInterval(() => {
         const currentAnalyser = analyserRef.current;
         if (!currentAnalyser) return;
-        const rms = computeRms(currentAnalyser, buffer);
+        const rms = computeRms(currentAnalyser, timeBuffer);
+        const bandRatio = speechBandRatio(currentAnalyser, frequencyBuffer);
         const now = Date.now();
-        if (rms > SPEECH_RMS_THRESHOLD) {
+        // Learn the ambient floor only while no speech is underway. This
+        // stops a steady fan/HVAC level from ever crossing the trigger.
+        if (!speakingRef.current) {
+          noiseFloorRef.current = (noiseFloorRef.current * 0.92) + (rms * 0.08);
+        }
+        const threshold = Math.max(MIN_SPEECH_RMS, noiseFloorRef.current * SPEECH_NOISE_MULTIPLIER);
+        const isLikelySpeech = rms >= threshold && bandRatio >= MIN_SPEECH_BAND_RATIO;
+        if (isLikelySpeech) {
           lastVoiceAtRef.current = now;
           if (!speakingRef.current) {
             speakingRef.current = true;
             speechStartAtRef.current = now;
             setMicStatus("speaking");
-            startUtteranceRecording();
+            startUtteranceRecording(generation, now);
           }
-        } else if (speakingRef.current && now - lastVoiceAtRef.current > PAUSE_MS) {
+        } else if (speakingRef.current && (
+          now - lastVoiceAtRef.current > PAUSE_MS || now - speechStartAtRef.current >= MAX_UTTERANCE_MS
+        )) {
           speakingRef.current = false;
           setMicStatus("listening");
           recorderRef.current?.stop();

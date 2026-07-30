@@ -19,12 +19,14 @@ import type { CreateLiveSessionResponseBody } from "@/back_end/api/personas/[id]
 // video/facial-scan or audio was ever uploaded — this falls back to the
 // server's generic demo avatar/voice rather than failing, and says so.
 
-// A TCP load balancer can take longer than a direct STUN lookup to establish
-// a TURN allocation. Never send LiveTalking an SDP offer with zero candidates:
-// that creates a session which can only time out. Leave enough room for the
-// relay allocation plus the ensuing ICE/DTLS handshake.
-const ICE_GATHERING_TIMEOUT_MS = 25_000;
-const CONNECT_TIMEOUT_MS = 65_000;
+// Never send LiveTalking an SDP containing only the GPU host's private
+// candidate. Gather until the browser has a server-reflexive (direct) or
+// relay candidate instead. TURN is a fallback, not a forced path: forcing
+// every session through a Tencent relay both adds latency and makes one bad
+// TURN listener a total connection failure.
+const ICE_GATHERING_TIMEOUT_MS = 12_000;
+const CONNECT_TIMEOUT_MS = 35_000;
+const PUBLIC_STUN_SERVERS = ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"];
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
@@ -73,22 +75,19 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         usesTurn: Boolean(tokenResult.turn),
       });
 
-      // When TURN is configured, use it exclusively. Waiting on a public STUN
-      // server that is blocked or slow in the visitor's network held ICE in
-      // its gathering phase until the old connection timeout elapsed. Relay
-      // mode also prevents the browser from choosing the A800 pod's private
-      // 172.18.x.x host candidate over the routable TURN candidate.
-      const iceServers: RTCIceServer[] = tokenResult.turn
-        ? [{
+      // Try direct WebRTC first (the lowest-latency path), with TURN kept as
+      // a relay fallback for restrictive NATs. `iceTransportPolicy: relay`
+      // was the direct cause of the repeated candidate errors seen in the
+      // browser when one configured relay listener was unavailable.
+      const iceServers: RTCIceServer[] = [
+        { urls: PUBLIC_STUN_SERVERS },
+        ...(tokenResult.turn ? [{
           urls: tokenResult.turn.urls,
           username: tokenResult.turn.username,
           credential: tokenResult.turn.credential,
-        }]
-        : [{ urls: "stun:stun.l.google.com:19302" }];
-      const pc = new RTCPeerConnection({
-        iceServers,
-        ...(tokenResult.turn ? { iceTransportPolicy: "relay" as RTCIceTransportPolicy } : {}),
-      });
+        }] : []),
+      ];
+      const pc = new RTCPeerConnection({ iceServers });
       pcRef.current = pc;
       pc.addEventListener("icecandidate", (event) => {
         // Candidate metadata is enough to diagnose TURN/STUN routing without
@@ -107,7 +106,11 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         console.info("[live-avatar] ICE state", { personaId, state: pc.iceConnectionState });
       });
       pc.addEventListener("icecandidateerror", (event) => {
-        console.error("[live-avatar] ICE candidate error", {
+        // A failed optional STUN/TURN probe is not itself a connection error:
+        // the browser may still select another direct or relay candidate.
+        // Keep this as a warning so a recoverable fallback does not look like
+        // a fatal application error in the console.
+        console.warn("[live-avatar] ICE candidate probe failed", {
           personaId,
           errorCode: event.errorCode,
           url: event.url,
@@ -145,15 +148,10 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       // before the awaited call yields back to this function.
       const iceReady = waitForIceGathering(pc, ICE_GATHERING_TIMEOUT_MS);
       await pc.setLocalDescription(offer);
-      // LiveTalking receives a non-trickle SDP offer. Once the first relay
-      // candidate arrives it is already embedded in localDescription and is
-      // enough to negotiate this single bundled audio/video stream. Some
-      // browsers keep the global gathering state open indefinitely, so do not
-      // wait for every optional probe to finish.
       const hasIceCandidate = await iceReady;
       if (cancelled) return;
       if (!hasIceCandidate || !pc.localDescription?.sdp.includes("\na=candidate:")) {
-        throw new Error("Couldn't establish a secure media relay. Please retry.");
+        throw new Error("Couldn't establish a direct or relay media path. Please retry.");
       }
 
       const offerResponse = await fetch(`/api/personas/${personaId}/live-session/offer`, {
@@ -177,6 +175,16 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       sessionRef.current = { sessionid: answer.sessionid };
       console.info("[live-avatar] signaling completed", { personaId, sessionId: answer.sessionid });
       onSessionReady?.(answer.sessionid);
+      // LiveTalking supports action choreography. `audiotype: 0` selects the
+      // configured relaxed idle action for this avatar where the GPU host has
+      // one installed. Older servers simply ignore the optional request.
+      void fetch(`/api/personas/${personaId}/live-session/idle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionid: answer.sessionid, audiotype: 0 }),
+      }).catch(() => {
+        // Media can still connect on servers that predate action control.
+      });
       // Signaling is done; connectionstatechange above handles the actual
       // "connected" transition (and any later failure) from here.
     }
@@ -258,9 +266,11 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
 }
 
 function waitForIceGathering(pc: RTCPeerConnection, maxWaitMs: number): Promise<boolean> {
-  if (pc.iceGatheringState === "complete" || pc.localDescription?.sdp.includes("\na=candidate:")) {
-    return Promise.resolve(Boolean(pc.localDescription?.sdp.includes("\na=candidate:")));
-  }
+  // A host candidate is normally a private LAN/container address and cannot
+  // serve a visitor on the public Internet. For non-trickle LiveTalking SDP,
+  // wait for either a STUN server-reflexive or TURN relay candidate to be
+  // embedded before forwarding the offer.
+  let hasRoutableCandidate = false;
   return new Promise((resolve) => {
     let settled = false;
     const finish = (hasCandidate: boolean) => {
@@ -273,14 +283,18 @@ function waitForIceGathering(pc: RTCPeerConnection, maxWaitMs: number): Promise<
     };
     function check() {
       if (pc.iceGatheringState === "complete") {
-        finish(Boolean(pc.localDescription?.sdp.includes("\na=candidate:")));
+        finish(hasRoutableCandidate);
       }
     }
     function candidateReady(event: RTCPeerConnectionIceEvent) {
-      if (event.candidate) finish(true);
+      const candidateType = event.candidate?.type;
+      if (candidateType === "srflx" || candidateType === "relay") {
+        hasRoutableCandidate = true;
+        finish(true);
+      }
     }
     const timeoutId = window.setTimeout(
-      () => finish(Boolean(pc.localDescription?.sdp.includes("\na=candidate:"))),
+      () => finish(hasRoutableCandidate),
       maxWaitMs,
     );
     pc.addEventListener("icegatheringstatechange", check);
