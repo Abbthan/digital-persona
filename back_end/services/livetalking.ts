@@ -303,6 +303,24 @@ export function voiceRefPath(personaId: string): string {
 }
 
 /**
+ * LiveTalking's MuseTalk avatar generator stores numbered source-video frames
+ * under this directory. Registering them as silence action type 1 makes its
+ * renderer loop the real source motion (breathing, blinking, posture shifts)
+ * between spoken audio rather than holding the first frame forever.
+ *
+ * This is generated server-side from the already-authorised avatar id; it is
+ * never accepted from the browser as an arbitrary GPU filesystem path.
+ */
+export function personaIdleActionConfig(avatarId: string): string {
+  return JSON.stringify([
+    {
+      audiotype: 1,
+      imgpath: `data/avatars/${avatarId}/full_imgs`,
+    },
+  ]);
+}
+
+/**
  * Removes a persona's trained MuseTalk avatar directory and CosyVoice voice
  * reference file from the GPU box. Training data (R2, Postgres, the RAG
  * vector store) is cleaned up elsewhere — this is the piece that only lives

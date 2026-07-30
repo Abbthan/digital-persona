@@ -16,6 +16,7 @@ export {
   getAvatarTrainingTask,
   isLiveTalkingConfigured,
   liveTalkingServerUrl,
+  personaIdleActionConfig,
   setLiveAvatarIdleAction,
   submitAvatarTrainingJob,
   turnServerConfig,

@@ -175,16 +175,6 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       sessionRef.current = { sessionid: answer.sessionid };
       console.info("[live-avatar] signaling completed", { personaId, sessionId: answer.sessionid });
       onSessionReady?.(answer.sessionid);
-      // LiveTalking supports action choreography. `audiotype: 0` selects the
-      // configured relaxed idle action for this avatar where the GPU host has
-      // one installed. Older servers simply ignore the optional request.
-      void fetch(`/api/personas/${personaId}/live-session/idle`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionid: answer.sessionid, audiotype: 0 }),
-      }).catch(() => {
-        // Media can still connect on servers that predate action control.
-      });
       // Signaling is done; connectionstatechange above handles the actual
       // "connected" transition (and any later failure) from here.
     }
