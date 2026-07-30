@@ -338,57 +338,36 @@ body {
 
 /* Apple Liquid Glass relies on more than blur: it refracts the live content
  * below it, carries a bright curved edge, and adapts its tint/shadow for
- * legibility. CSS cannot physically ray-trace DOM pixels, but this material
- * keeps the avatar visible through a low-opacity regular-glass layer while
- * using contrast/saturation, a lens-like edge, a specular sweep, and press
- * flex to reproduce those characteristics rather than a flat frosted panel. */
+ * legibility. CSS cannot physically ray-trace DOM pixels, but this uses a
+ * stable, visibly present regular-glass material: translucent enough to keep
+ * the avatar readable behind it, but opaque enough for chat text to remain
+ * reliable over any video frame. */
 .liquid-glass-chat {
   position: relative;
-  isolation: isolate;
-  border: 1px solid rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.82);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.48) 0%, rgba(236, 249, 255, 0.25) 44%, rgba(197, 230, 255, 0.32) 100%);
+    radial-gradient(130% 62% at 0% 0%, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.42) 48%, transparent 72%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76) 0%, rgba(230, 247, 255, 0.63) 50%, rgba(188, 225, 248, 0.67) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -1px 0 rgba(52, 143, 194, 0.22),
-    0 18px 42px rgba(5, 30, 55, 0.28);
-  backdrop-filter: blur(18px) saturate(175%) contrast(108%) brightness(108%);
-  -webkit-backdrop-filter: blur(18px) saturate(175%) contrast(108%) brightness(108%);
-}
-
-.liquid-glass-chat::before,
-.liquid-glass-chat::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  pointer-events: none;
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(42, 137, 190, 0.32),
+    inset 1px 0 0 rgba(255, 255, 255, 0.35),
+    0 18px 42px rgba(5, 30, 55, 0.34);
+  backdrop-filter: blur(16px) saturate(150%) contrast(106%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%) contrast(106%);
 }
 
 .liquid-glass-chat::before {
+  content: "";
+  position: absolute;
   inset: 1px;
   border-radius: inherit;
-  background:
-    radial-gradient(82% 44% at 13% -10%, rgba(255, 255, 255, 0.92), transparent 58%),
-    radial-gradient(54% 36% at 103% 98%, rgba(103, 207, 255, 0.3), transparent 70%),
-    linear-gradient(110deg, rgba(255, 255, 255, 0.1), transparent 42%, rgba(214, 244, 255, 0.22));
-  mix-blend-mode: screen;
-}
-
-.liquid-glass-chat::after {
-  width: 54%;
-  height: 150%;
-  left: -32%;
-  top: -28%;
-  transform: rotate(24deg);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.43), transparent);
-  filter: blur(9px);
-  opacity: 0.62;
-  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
-}
-
-.liquid-glass-chat:hover::after {
-  transform: translateX(26%) rotate(24deg);
-  opacity: 0.86;
+  pointer-events: none;
+  /* A crisp highlight travelling along the upper-left edge is the lens cue.
+   * It is deliberately not blend-mode based so the panel cannot disappear
+   * against black or high-contrast video frames. */
+  background: linear-gradient(118deg, rgba(255, 255, 255, 0.6), transparent 25%, transparent 72%, rgba(128, 209, 255, 0.2));
+  opacity: 0.82;
 }
 
 .liquid-glass-chat:active {
@@ -399,32 +378,26 @@ body {
     0 12px 30px rgba(5, 30, 55, 0.23);
 }
 
-.liquid-glass-chat > * {
-  position: relative;
-  z-index: 1;
-}
-
 .liquid-glass-chat-header {
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.36);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.43), rgba(239, 250, 255, 0.2));
 }
 
 :root[data-theme="dark"] .liquid-glass-chat {
-  border-color: rgba(213, 181, 255, 0.48);
+  border-color: rgba(222, 193, 255, 0.58);
   background:
-    linear-gradient(135deg, rgba(85, 41, 136, 0.47) 0%, rgba(22, 16, 49, 0.24) 44%, rgba(70, 41, 146, 0.36) 100%);
+    radial-gradient(130% 62% at 0% 0%, rgba(196, 143, 255, 0.38) 0%, rgba(55, 31, 88, 0.18) 48%, transparent 72%),
+    linear-gradient(135deg, rgba(57, 34, 92, 0.76) 0%, rgba(23, 18, 49, 0.66) 50%, rgba(66, 36, 124, 0.7) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    inset 0 -1px 0 rgba(183, 110, 255, 0.28),
-    0 18px 42px rgba(0, 0, 0, 0.48);
-  backdrop-filter: blur(18px) saturate(168%) contrast(111%) brightness(82%);
-  -webkit-backdrop-filter: blur(18px) saturate(168%) contrast(111%) brightness(82%);
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(183, 110, 255, 0.35),
+    0 18px 42px rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(16px) saturate(155%) contrast(108%) brightness(86%);
+  -webkit-backdrop-filter: blur(16px) saturate(155%) contrast(108%) brightness(86%);
 }
 
 :root[data-theme="dark"] .liquid-glass-chat::before {
-  background:
-    radial-gradient(82% 44% at 13% -10%, rgba(236, 214, 255, 0.35), transparent 58%),
-    radial-gradient(54% 36% at 103% 98%, rgba(128, 83, 255, 0.32), transparent 70%),
-    linear-gradient(110deg, rgba(255, 255, 255, 0.08), transparent 42%, rgba(196, 148, 255, 0.18));
+  background: linear-gradient(118deg, rgba(239, 216, 255, 0.46), transparent 25%, transparent 72%, rgba(182, 111, 255, 0.24));
 }
 
 /* Tailwind's Preflight resets <button> to cursor: default (matching native
