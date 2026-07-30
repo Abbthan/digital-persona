@@ -336,87 +336,95 @@ body {
   animation: none;
 }
 
-/* The global dock uses a distinct liquid-glass treatment: two restrained
- * translucent layers, a moving-light-style specular rim, and a fine inner
- * edge give it depth without looking like the old generic frosted panel.
- * The pseudo-elements sit behind children so links and account controls keep
- * normal interaction and contrast. */
-.liquid-glass-dock {
+/* Apple Liquid Glass relies on more than blur: it refracts the live content
+ * below it, carries a bright curved edge, and adapts its tint/shadow for
+ * legibility. CSS cannot physically ray-trace DOM pixels, but this material
+ * keeps the avatar visible through a low-opacity regular-glass layer while
+ * using contrast/saturation, a lens-like edge, a specular sweep, and press
+ * flex to reproduce those characteristics rather than a flat frosted panel. */
+.liquid-glass-chat {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.64);
   background:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.84) 0%, rgba(255, 255, 255, 0.48) 48%, rgba(220, 244, 255, 0.58) 100%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.48) 0%, rgba(236, 249, 255, 0.25) 44%, rgba(197, 230, 255, 0.32) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    inset 0 -1px 0 rgba(87, 156, 190, 0.14),
-    0 10px 28px rgba(30, 79, 110, 0.13);
-  backdrop-filter: blur(26px) saturate(165%);
-  -webkit-backdrop-filter: blur(26px) saturate(165%);
+    inset 0 -1px 0 rgba(52, 143, 194, 0.22),
+    0 18px 42px rgba(5, 30, 55, 0.28);
+  backdrop-filter: blur(18px) saturate(175%) contrast(108%) brightness(108%);
+  -webkit-backdrop-filter: blur(18px) saturate(175%) contrast(108%) brightness(108%);
 }
 
-.liquid-glass-dock::before,
-.liquid-glass-dock::after {
+.liquid-glass-chat::before,
+.liquid-glass-chat::after {
   content: "";
   position: absolute;
+  z-index: 0;
   pointer-events: none;
-  z-index: -1;
 }
 
-.liquid-glass-dock::before {
+.liquid-glass-chat::before {
   inset: 1px;
   border-radius: inherit;
   background:
-    radial-gradient(70% 150% at 12% -35%, rgba(255, 255, 255, 0.86), transparent 58%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.1), transparent 36%, rgba(171, 224, 255, 0.2));
+    radial-gradient(82% 44% at 13% -10%, rgba(255, 255, 255, 0.92), transparent 58%),
+    radial-gradient(54% 36% at 103% 98%, rgba(103, 207, 255, 0.3), transparent 70%),
+    linear-gradient(110deg, rgba(255, 255, 255, 0.1), transparent 42%, rgba(214, 244, 255, 0.22));
+  mix-blend-mode: screen;
 }
 
-.liquid-glass-dock::after {
-  width: 42%;
-  height: 180%;
-  top: -45%;
-  left: -17%;
-  transform: rotate(20deg);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
-  filter: blur(10px);
-  opacity: 0.72;
+.liquid-glass-chat::after {
+  width: 54%;
+  height: 150%;
+  left: -32%;
+  top: -28%;
+  transform: rotate(24deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.43), transparent);
+  filter: blur(9px);
+  opacity: 0.62;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
 }
 
-.liquid-glass-dock > * {
+.liquid-glass-chat:hover::after {
+  transform: translateX(26%) rotate(24deg);
+  opacity: 0.86;
+}
+
+.liquid-glass-chat:active {
+  transform: scale(0.992);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -1px 0 rgba(52, 143, 194, 0.18),
+    0 12px 30px rgba(5, 30, 55, 0.23);
+}
+
+.liquid-glass-chat > * {
   position: relative;
   z-index: 1;
 }
 
-.liquid-glass-dock-scrolled {
-  border-color: rgba(255, 255, 255, 0.78);
+.liquid-glass-chat-header {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06));
+}
+
+:root[data-theme="dark"] .liquid-glass-chat {
+  border-color: rgba(213, 181, 255, 0.48);
   background:
-    linear-gradient(112deg, rgba(255, 255, 255, 0.68) 0%, rgba(248, 253, 255, 0.39) 48%, rgba(204, 238, 255, 0.46) 100%);
+    linear-gradient(135deg, rgba(85, 41, 136, 0.47) 0%, rgba(22, 16, 49, 0.24) 44%, rgba(70, 41, 146, 0.36) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    inset 0 -1px 0 rgba(64, 148, 194, 0.16),
-    0 8px 22px rgba(30, 79, 110, 0.09);
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -1px 0 rgba(183, 110, 255, 0.28),
+    0 18px 42px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(18px) saturate(168%) contrast(111%) brightness(82%);
+  -webkit-backdrop-filter: blur(18px) saturate(168%) contrast(111%) brightness(82%);
 }
 
-:root[data-theme="dark"] .liquid-glass-dock {
-  border-color: rgba(217, 184, 255, 0.34);
+:root[data-theme="dark"] .liquid-glass-chat::before {
   background:
-    linear-gradient(112deg, rgba(68, 35, 105, 0.66) 0%, rgba(28, 22, 50, 0.42) 48%, rgba(81, 36, 129, 0.5) 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 0 rgba(173, 94, 255, 0.2),
-    0 10px 30px rgba(0, 0, 0, 0.34);
-}
-
-:root[data-theme="dark"] .liquid-glass-dock-scrolled {
-  background:
-    linear-gradient(112deg, rgba(63, 31, 100, 0.54) 0%, rgba(22, 18, 40, 0.34) 48%, rgba(76, 31, 121, 0.42) 100%);
-}
-
-:root[data-theme="dark"] .liquid-glass-dock::before {
-  background:
-    radial-gradient(70% 150% at 12% -35%, rgba(238, 216, 255, 0.22), transparent 58%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04), transparent 36%, rgba(186, 114, 255, 0.18));
+    radial-gradient(82% 44% at 13% -10%, rgba(236, 214, 255, 0.35), transparent 58%),
+    radial-gradient(54% 36% at 103% 98%, rgba(128, 83, 255, 0.32), transparent 70%),
+    linear-gradient(110deg, rgba(255, 255, 255, 0.08), transparent 42%, rgba(196, 148, 255, 0.18));
 }
 
 /* Tailwind's Preflight resets <button> to cursor: default (matching native

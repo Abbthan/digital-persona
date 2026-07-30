@@ -441,7 +441,7 @@ export function PersonaConversationView({
       <div
         ref={chatPanelRef}
         className={videoMode
-          ? `absolute right-2 top-2 z-20 flex flex-col overflow-hidden rounded-lg border border-white/20 bg-canvas/95 shadow-product backdrop-blur-xl transition-[width,height] duration-200 ease-out ${chatMinimized
+          ? `liquid-glass-chat absolute right-2 top-2 z-20 flex flex-col overflow-hidden rounded-lg transition-[width,height,transform,box-shadow] duration-200 ease-out ${chatMinimized
             ? "h-11 w-[min(17rem,calc(100%-1rem))]"
             : "h-[min(36rem,calc(100%-1rem))] w-[min(26rem,calc(100%-1rem))]"
           }`
@@ -458,7 +458,7 @@ export function PersonaConversationView({
             onPointerMove={dragChat}
             onPointerUp={endChatDrag}
             onPointerCancel={endChatDrag}
-            className={`flex flex-shrink-0 touch-none items-center justify-between bg-canvas-parchment/80 px-sm py-xs select-none ${
+            className={`liquid-glass-chat-header flex flex-shrink-0 touch-none items-center justify-between px-sm py-xs select-none ${
               chatMinimized ? "h-full" : "border-b border-hairline"
             }`}
           >
