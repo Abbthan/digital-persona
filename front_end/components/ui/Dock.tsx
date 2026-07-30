@@ -21,22 +21,17 @@ function useIsScrolled(threshold = 8) {
   );
 }
 
-// Floating pill/rounded-rect surface — not documented in DESIGN.md (Apple's
-// analyzed marketing pages use a full-width global-nav, not a floating one).
-// Composed from the closest documented patterns instead: the backdrop-blur
-// treatment of sub-nav-frosted / floating-sticky-bar for the scrolled state,
-// the pill grammar, and (per Phase 1's explicit ask) a solid top state with
-// shadow-dock — see the note on that token in app/globals.css.
+// Floating liquid-glass navigation surface. The layered CSS treatment gives
+// the dock a refractive highlight and a soft inner rim rather than the older
+// uniform frosted panel effect, while preserving contrast over every page.
 export function Dock({ className, children, ...props }: DockProps) {
   const scrolled = useIsScrolled();
 
   return (
     <div
       className={cn(
-        "rounded-pill border transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out",
-        scrolled
-          ? "border-hairline/60 bg-canvas-parchment/55 shadow-none backdrop-blur-[20px] backdrop-saturate-[180%]"
-          : "border-transparent bg-canvas shadow-dock backdrop-blur-none",
+        "liquid-glass-dock rounded-pill transition-[background-color,border-color,box-shadow,backdrop-filter,transform] duration-300 ease-out",
+        scrolled && "liquid-glass-dock-scrolled",
         className,
       )}
       {...props}

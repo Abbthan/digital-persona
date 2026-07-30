@@ -14,6 +14,7 @@ import type {
   SendMessageResponseBody,
 } from "@/back_end/api/personas/[id]/messages/route";
 import type { TranscribeResponseBody } from "@/back_end/api/personas/[id]/transcribe/route";
+import type { PersonaInitiativeResponseBody } from "@/back_end/api/personas/[id]/initiative/route";
 
 type PersonaConversationViewProps = {
   personaId: string;
@@ -34,6 +35,8 @@ const PAUSE_MS = 950;
 const MIN_SPEECH_MS = 450;
 const MAX_UTTERANCE_MS = 20_000;
 const VAD_POLL_MS = 100;
+const INITIATIVE_FIRST_CHECK_MS = 90_000;
+const INITIATIVE_CHECK_INTERVAL_MS = 2 * 60_000;
 
 function spokenReplyForLocale(content: string, personaName: string, locale: "en" | "zh") {
   if (locale !== "zh") return content;
@@ -100,6 +103,7 @@ export function PersonaConversationView({
   const conversationRef = useRef<HTMLDivElement>(null);
   const chatPanelRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const initiativeRequestRef = useRef(false);
 
   const videoMode = isPaid && liveVideoEnabled;
 
@@ -124,6 +128,53 @@ export function PersonaConversationView({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // A conversation may occasionally receive a grounded opening from the
+  // persona while this chat is open. The server owns the actual cooldown,
+  // deterministic "sometimes" cadence, current-message race check, and LLM
+  // decision; the client merely polls sparingly and displays a returned turn.
+  // Nothing is created while the LLM is unavailable or the chat has no user
+  // context, so this never degenerates into a canned reminder.
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    const checkForInitiative = async () => {
+      if (initiativeRequestRef.current) return;
+      initiativeRequestRef.current = true;
+      try {
+        const response = await fetch(`/api/personas/${personaId}/initiative`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            locale,
+            ...(videoMode && liveSessionId ? { liveSessionId } : {}),
+          }),
+        });
+        const result = (await response.json().catch(() => null)) as PersonaInitiativeResponseBody | null;
+        if (cancelled || !result?.ok || !result.message) return;
+        setMessages((current) => current.some((message) => message.id === result.message?.id)
+          ? current
+          : [...current, result.message!]);
+        setLatestReply({
+          id: result.message.id,
+          content: result.message.content,
+          liveSpeechQueued: result.liveSpeechQueued,
+        });
+      } catch {
+        // A background opening is intentionally optional. The primary chat
+        // flow remains quiet and fully usable through a transient outage.
+      } finally {
+        initiativeRequestRef.current = false;
+      }
+    };
+    const firstCheck = window.setTimeout(() => void checkForInitiative(), INITIATIVE_FIRST_CHECK_MS);
+    const interval = window.setInterval(() => void checkForInitiative(), INITIATIVE_CHECK_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(firstCheck);
+      window.clearInterval(interval);
+    };
+  }, [loading, personaId, locale, liveSessionId, videoMode]);
 
   async function sendMessage(content: string) {
     if (!content.trim()) return;

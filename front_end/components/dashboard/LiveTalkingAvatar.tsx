@@ -175,6 +175,20 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       sessionRef.current = { sessionid: answer.sessionid };
       console.info("[live-avatar] signaling completed", { personaId, sessionId: answer.sessionid });
       onSessionReady?.(answer.sessionid);
+      // `custom_config` on the offer registers action type 1 with this
+      // persona's own source frames. Selecting it explicitly matters on
+      // deployments whose renderer otherwise stays on the static default
+      // no-speech frame after a session is established.
+      if (tokenResult.avatarId) {
+        fetch(`/api/personas/${personaId}/live-session/idle`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionid: answer.sessionid, audiotype: 1 }),
+        }).catch(() => {
+          // Speech/video remains usable even if an older GPU deployment does
+          // not expose the optional idle-action endpoint yet.
+        });
+      }
       // Signaling is done; connectionstatechange above handles the actual
       // "connected" transition (and any later failure) from here.
     }

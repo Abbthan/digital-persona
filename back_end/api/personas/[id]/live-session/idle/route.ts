@@ -18,7 +18,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id: personaId } = await params;
   const body = await request.json().catch(() => null);
   const sessionId = typeof body?.sessionid === "string" ? body.sessionid.trim() : "";
-  const audiotype = body?.audiotype === 0 ? 0 : 0;
+  // Type 1 is LiveTalking's silence state. The offer route registers the
+  // persona's original numbered motion frames for exactly this action, so
+  // explicitly selecting it after signaling avoids falling back to its
+  // static default frame.
+  const audiotype = 1 as const;
   if (!sessionId || sessionId.length > 160) return NextResponse.json({ ok: false, error: "A valid live-session id is required." }, { status: 400 });
 
   const persona = await getDb().persona.findFirst({ where: { id: personaId, userId: user.id }, select: { id: true, status: true } });

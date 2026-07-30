@@ -123,12 +123,13 @@ export async function setLiveAvatarIdleAction({
   userId,
   personaId,
   sessionId,
-  audiotype = 0,
+  audiotype = 1,
 }: {
   userId: string;
   personaId: string;
   sessionId: string;
-  audiotype?: number;
+  /** LiveTalking reserves type 1 for the normal no-speech/idle state. */
+  audiotype?: 1;
 }): Promise<void> {
   const serverUrl = liveTalkingServerUrl();
   const token = await createLiveSessionToken(userId, personaId);
