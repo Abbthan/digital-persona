@@ -20,9 +20,10 @@ push fails, the script stops before it can deploy. If Cloudflare fails after a
 successful push, the source is still safely recorded and the previous live
 Worker remains available.
 
-`npm run deploy` remains an alias for Cloudflare-only recovery work. Normal
-production releases should use `npm run release` so GitHub and Cloudflare do
-not diverge.
+`npm run deploy` is intentionally an alias for `npm run release`, so the
+familiar deployment command cannot accidentally bypass GitHub. The internal
+`npm run deploy:cloudflare` command is reserved for the release script and
+emergency recovery only; do not use it for normal product changes.
 
 The script never handles `.env*`, `.dev.vars`, private keys, model weights,
 Chroma runtime data, Node modules, or build artifacts. Keep all credentials

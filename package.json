@@ -10,7 +10,7 @@
     "cf-typegen": "wrangler types --include-runtime false --env-interface CloudflareEnv cloudflare-env.d.ts",
     "prepare-static-assets": "node scripts/prepare-static-assets.mjs",
     "preview": "opennextjs-cloudflare build && npm run prepare-static-assets && wrangler dev",
-    "deploy": "npm run deploy:cloudflare",
+    "deploy": "npm run release",
     "deploy:cloudflare": "opennextjs-cloudflare build && npm run prepare-static-assets && OPEN_NEXT_DEPLOY=true npx wrangler deploy",
     "verify": "npm run lint && npx tsc --noEmit && npm run build",
     "release": "node scripts/release.mjs"
