@@ -13,9 +13,14 @@ front_end/
 back_end/
   api/                       API endpoint implementations (auth, accounts, personas, billing)
   services/                  Database, session, email, storage, moderation, and AI services
+    live-avatar.ts           Narrow WebRTC/avatar-training boundary
+    speech.ts                Narrow STT/TTS/voice-reference boundary
+    persona-rag.ts           Persona-scoped memory/RAG boundary
 shared/                      Browser/server-safe validation, pricing, and utility code
 prisma/                      Database schema and migration history
 generated/prisma/            Prisma-generated client; do not edit manually
+scripts/release.mjs          Verified GitHub-first Cloudflare production release
+docs/gpu-service-boundaries.md  Independent GPU-service ownership and data boundaries
 ```
 
 ## Adding code
@@ -26,6 +31,9 @@ generated/prisma/            Prisma-generated client; do not edit manually
   `app/api/.../route.ts` re-export so its public URL stays under `/api`.
 - Put database, authentication, external-service, storage, and future persona
   AI logic in `back_end/services/`.
+- Import GPU functionality through the smallest matching boundary
+  (`live-avatar.ts`, `speech.ts`, or `persona-rag.ts`) so a change to one
+  provider does not spread through unrelated application code.
 - Put only code that is safe to import from both browser and server in `shared/`.
 
 The small files in `app/` are intentional framework adapters: Next.js uses

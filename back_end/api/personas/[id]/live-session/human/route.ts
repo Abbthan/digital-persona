@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { hasPaidAccess } from "@/back_end/services/limits";
-import { dispatchLiveSpeech, isLiveTalkingConfigured } from "@/back_end/services/livetalking";
+import { isLiveTalkingConfigured } from "@/back_end/services/live-avatar";
+import { dispatchLiveSpeech } from "@/back_end/services/speech";
 
 // Proxies "make the avatar speak this text" the same way /offer above does
 // — same mixed-content reason, browser can't fetch() the plain-HTTP GPU

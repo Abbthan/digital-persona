@@ -46,6 +46,9 @@ yarn-error.log*
 /.claude/
 /.wrangler/
 /awesome-design-md/
+# Local research/export material is not application source. Keep it out of
+# release commits unless it is deliberately moved into docs/.
+/output/
 
 # typescript
 *.tsbuildinfo

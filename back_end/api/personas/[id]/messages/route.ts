@@ -6,7 +6,8 @@ import { getPersonaReply, type PersonaConversationTurn } from "@/back_end/servic
 import { incrementPlatformMetrics } from "@/back_end/services/metrics";
 import { ingestConversationMessage } from "@/back_end/services/persona-rag";
 import { maskInappropriateLanguage } from "@/back_end/services/moderation";
-import { dispatchLiveSpeech, isLiveTalkingConfigured } from "@/back_end/services/livetalking";
+import { isLiveTalkingConfigured } from "@/back_end/services/live-avatar";
+import { dispatchLiveSpeech } from "@/back_end/services/speech";
 import { hasPaidAccess } from "@/back_end/services/limits";
 
 export type ChatMessageDTO = {

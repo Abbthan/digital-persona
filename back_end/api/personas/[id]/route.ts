@@ -3,7 +3,7 @@ import { getCurrentUser, verifyPassword } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { deletePersonaMedia } from "@/back_end/services/storage";
 import { deleteAllRagData } from "@/back_end/services/persona-rag";
-import { deletePersonaGpuFiles } from "@/back_end/services/livetalking";
+import { deletePersonaGpuFiles } from "@/back_end/services/live-avatar";
 
 export type DeletePersonaResponseBody = { ok: true } | { ok: false; error: string };
 

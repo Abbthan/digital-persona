@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { hasPaidAccess } from "@/back_end/services/limits";
-import { isLiveTalkingConfigured, turnServerConfig, voiceRefPath } from "@/back_end/services/livetalking";
+import { isLiveTalkingConfigured, turnServerConfig } from "@/back_end/services/live-avatar";
+import { voiceRefPath } from "@/back_end/services/speech";
 
 // No token/serverUrl here anymore — the browser used to fetch() LiveTalking
 // directly with those, but that's a plain-HTTP GPU box being called from an

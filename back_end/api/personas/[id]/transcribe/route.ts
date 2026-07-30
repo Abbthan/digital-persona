@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
-import { isLiveTalkingConfigured, transcribeVoiceClip } from "@/back_end/services/livetalking";
+import { isLiveTalkingConfigured } from "@/back_end/services/live-avatar";
+import { transcribeVoiceClip } from "@/back_end/services/speech";
 
 export type TranscribeResponseBody = { ok: true; text: string } | { ok: false; error: string };
 

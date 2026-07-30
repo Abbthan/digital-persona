@@ -10,7 +10,7 @@
 // in persona-ai.ts, so heavy extraction/embedding stays on the GPU backend
 // and private source files never enter the Worker heap.
 
-import { createLiveSessionToken, liveTalkingServerUrl } from "@/back_end/services/livetalking";
+import { createLiveSessionToken, liveTalkingServerUrl } from "@/back_end/services/live-avatar";
 
 async function systemToken(personaId: string): Promise<string | null> {
   return createLiveSessionToken("system", personaId);

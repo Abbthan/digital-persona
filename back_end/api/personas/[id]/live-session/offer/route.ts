@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { hasPaidAccess } from "@/back_end/services/limits";
-import { createLiveSessionToken, isLiveTalkingConfigured, liveTalkingServerUrl } from "@/back_end/services/livetalking";
+import { createLiveSessionToken, isLiveTalkingConfigured, liveTalkingServerUrl } from "@/back_end/services/live-avatar";
 
 // Proxies the WebRTC offer/answer handshake through this app's own HTTPS
 // origin. The browser can't fetch() LiveTalking's plain-HTTP GPU box

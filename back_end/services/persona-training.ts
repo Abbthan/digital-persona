@@ -3,9 +3,9 @@ import {
   checkFaceMatch,
   getAvatarReadiness,
   getAvatarTrainingTask,
-  saveVoiceReference,
   submitAvatarTrainingJob,
-} from "@/back_end/services/livetalking";
+} from "@/back_end/services/live-avatar";
+import { saveVoiceReference } from "@/back_end/services/speech";
 
 export type PersonaTrainingState = {
   status: "processing" | "active";
