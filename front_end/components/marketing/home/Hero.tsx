@@ -12,19 +12,15 @@ export function Hero() {
   const { openModal } = useModalController();
 
   return (
-    // sticky rather than the section's default relative (overridden with
-    // !sticky since cn() here is a plain join, not a Tailwind-conflict-aware
-    // merge — see shared/utils.ts): the hero stays pinned at the top of the
-    // viewport as its normal document-flow space scrolls by, so HowItWorks
-    // (the next section, opaque and later in DOM order) slides up and
-    // visually covers it instead of the two scrolling together. z-0 keeps it
-    // unambiguously beneath that later content.
-    <Section
-      tone="canvas"
-      clearDock
-      className="!sticky top-0 z-0 !pb-32"
-      background={<HeroGradientBackground />}
-    >
+    // Plain normal-flow section — only the background layer itself
+    // (HeroGradientBackground, position:fixed) stays pinned to the viewport
+    // for the reveal effect. The section and its text/logo/buttons scroll
+    // normally, same as any other content. !bg-transparent cancels
+    // tone="canvas"'s own opaque bg-canvas fill (kept for its text-color
+    // pairing) — left opaque, this normal-flow section would sit above the
+    // negative-z-index fixed background in the stacking order and hide it
+    // completely for as long as the section itself is on screen.
+    <Section tone="canvas" clearDock className="!bg-transparent !pb-32" background={<HeroGradientBackground />}>
       <Image
         src="/brand/echo-logo.png"
         alt="ECHO logo"

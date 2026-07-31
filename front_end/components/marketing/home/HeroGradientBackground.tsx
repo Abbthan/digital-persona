@@ -4,6 +4,14 @@
 // continuously-flowing mesh-gradient feel. CSS supplies a saturated warm
 // light version and a mostly-black, restrained blue/purple dark version,
 // while reduced-motion freezes both without needing theme state here.
+//
+// fixed rather than absolute: Hero.tsx's own <section> is back to normal
+// document flow (its text/logo/buttons scroll away like any other content),
+// but this background layer still needs to stay pinned to the viewport on
+// its own while that happens — only it, not the section it's nominally
+// inside, is the "reveal" layer HowItWorks slides up and over. -z-10 keeps
+// it under all normal-flow page content regardless of DOM order, since a
+// fixed element would otherwise paint above earlier siblings by default.
 const BLOBS = [
   { color: "#3D5FFF", left: "-8%", top: "-18%", size: "58%", variant: "a", delay: "-1s", duration: "9s" },
   { color: "#F5A6F7", left: "22%", top: "-4%", size: "72%", variant: "b", delay: "-4s", duration: "11s" },
@@ -15,7 +23,7 @@ const BLOBS = [
 export function HeroGradientBackground() {
   return (
     <div
-      className="hero-gradient-bg pointer-events-none absolute inset-0"
+      className="hero-gradient-bg pointer-events-none fixed inset-0 -z-10"
       style={{ background: "linear-gradient(135deg, #f9ddff 0%, #ffd9e8 100%)" }}
       aria-hidden="true"
     >
