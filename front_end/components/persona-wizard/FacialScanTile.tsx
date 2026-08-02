@@ -199,13 +199,13 @@ export function FacialScanTile({
         <p className="mt-xs font-text text-caption text-ink-muted-80">
           {scanning ? `Scanning — ${secondsRemaining}s remaining` : "Start when you are ready. It saves a face reference and a motion clip when you stop or when time runs out."}
         </p>
+        <div className="mt-lg border-y border-hairline py-lg">
+          <RecordingConsent personaName={personaName} />
+        </div>
         {scanning && <video ref={videoRef} autoPlay muted playsInline className="mt-lg h-56 w-full rounded-md bg-surface-black object-cover" />}
         <Button variant="secondary" className="mt-lg w-full" onClick={scanning ? finishScan : startScan} disabled={saving}>
           {saving ? "Saving…" : scanning ? `Stop & save (${secondsRemaining}s)` : "Start scan"}
         </Button>
-        <div className="mt-lg border-t border-hairline pt-lg">
-          <RecordingConsent personaName={personaName} />
-        </div>
         {error && <p role="alert" className="mt-sm font-text text-caption text-red-500">{error}</p>}
       </Modal>
     </>

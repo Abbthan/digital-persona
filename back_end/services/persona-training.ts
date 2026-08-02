@@ -26,13 +26,18 @@ function metadataOf(metadata: unknown): { originalName?: string; size?: number; 
   return metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>) : {};
 }
 
-// Real video (natural head movement) makes a meaningfully better MuseTalk
-// avatar than a single looped photo — but only a video actually confirmed
-// (via the GPU box's face_recognition check) to show the same person as the
-// facial scan is trusted with that; an uploaded video that doesn't match
-// falls back to the scan itself rather than risk training on someone else's
-// face. Without a facial scan to check against, there's no ground truth to
-// enforce, so any video is trusted as before.
+// The dedicated facial recorder produces a face reference and a paired motion
+// clip from the same camera session. That clip is the primary visual source:
+// it gives MuseTalk an intentional, front-facing likeness instead of letting
+// an unrelated upload replace it merely because it happens to score well in
+// face matching. Uploaded videos remain useful assistive material: when a
+// facial scan exists, they are checked against it before being considered as
+// fallbacks for personas that do not have the paired facial-motion clip.
+//
+// LiveTalking's current task-from-url API accepts exactly one visual source
+// per MuseTalk task. Supplying the facial-motion clip preserves it as the
+// actual training source; passing several uploaded videos to that API would
+// just make the last task overwrite the first avatar rather than improve it.
 function originalName(asset: AssetRow): string {
   return metadataOf(asset.metadata).originalName ?? asset.url.split("/").pop() ?? "file";
 }
@@ -44,10 +49,15 @@ async function selectAvatarSourceAsset(
   const facialScan = assets.find((asset) => asset.type === "facial_scan") ?? null;
   const videos = assets.filter((asset) => asset.type === "video");
   const images = assets.filter((asset) => asset.type === "image");
+  const facialMotion = videos.find((asset) => metadataOf(asset.metadata).source === "facial_camera") ?? null;
+
+  // The paired recording is deliberately always first. Its still image and
+  // motion frames were captured together, so it is the strongest available
+  // evidence of both identity and natural idle movement.
+  if (facialMotion) return facialMotion;
 
   if (facialScan && videos.length > 0) {
     let best: { asset: AssetRow; distance: number } | null = null;
-    let capturedMotionFallback: AssetRow | null = null;
     for (const video of videos) {
       // Both private R2 files are streamed directly to the A800 for face
       // matching. The Worker only sends their asset identifiers/URLs.
@@ -59,15 +69,8 @@ async function selectAvatarSourceAsset(
       if (result?.match && (best === null || (result.distance ?? Infinity) < best.distance)) {
         best = { asset: video, distance: result.distance ?? Infinity };
       }
-      // A facial motion clip and its scan are captured in the same session.
-      // If the optional face-match service is temporarily unavailable, trust
-      // that paired capture over degrading the avatar to a looped still.
-      if (result === null && metadataOf(video.metadata).source === "facial_camera" && !capturedMotionFallback) {
-        capturedMotionFallback = video;
-      }
     }
     if (best) return best.asset;
-    if (capturedMotionFallback) return capturedMotionFallback;
   }
 
   if (facialScan) return facialScan;

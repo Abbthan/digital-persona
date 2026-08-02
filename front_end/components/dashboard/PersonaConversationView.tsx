@@ -22,6 +22,7 @@ type PersonaConversationViewProps = {
 };
 
 type MicStatus = "off" | "listening" | "speaking" | "transcribing";
+type SendMessageResult = { ok: true } | { ok: false; error: string };
 
 // Voice-activity detection tuning. The adaptive noise floor and speech-band
 // ratio prevent fans, keyboard taps, and steady background noise from being
@@ -84,6 +85,7 @@ export function PersonaConversationView({
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
   const [micStatus, setMicStatus] = useState<MicStatus>("off");
   const [liveVideoEnabled, setLiveVideoEnabled] = useState(true);
   const [chatPosition, setChatPosition] = useState<{ x: number; y: number } | null>(null);
@@ -176,22 +178,26 @@ export function PersonaConversationView({
     };
   }, [loading, personaId, locale, liveSessionId, videoMode]);
 
-  async function sendMessage(content: string) {
-    if (!content.trim()) return;
+  async function sendMessage(content: string): Promise<SendMessageResult> {
+    const trimmedContent = content.trim();
+    if (!trimmedContent) return { ok: false, error: "Message can't be empty." };
     setSending(true);
     try {
       const response = await fetch(`/api/personas/${personaId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content,
+          content: trimmedContent,
           // Supplying an established session lets the backend enqueue speech
           // without a second round trip through the browser.
           ...(videoMode && liveSessionId ? { liveSessionId } : {}),
           locale,
         }),
       });
-      const result = (await response.json()) as SendMessageResponseBody;
+      const result = (await response.json().catch(() => null)) as SendMessageResponseBody | null;
+      if (!response.ok || !result) {
+        return { ok: false, error: "Couldn't send your message. Please try again." };
+      }
       if (result.ok) {
         setMessages((current) => [...current, result.userMessage, result.replyMessage]);
         setLatestReply({
@@ -199,7 +205,11 @@ export function PersonaConversationView({
           content: spokenReplyForLocale(result.replyMessage.content, personaName, locale),
           liveSpeechQueued: result.liveSpeechQueued,
         });
+        return { ok: true };
       }
+      return { ok: false, error: result.error };
+    } catch {
+      return { ok: false, error: "Couldn't send your message. Please try again." };
     } finally {
       setSending(false);
     }
@@ -208,8 +218,10 @@ export function PersonaConversationView({
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const content = input;
-    setInput("");
-    await sendMessage(content);
+    setMessageError(null);
+    const result = await sendMessage(content);
+    if (result.ok) setInput("");
+    else setMessageError(result.error);
   }
 
   // Always-on mic: once toggled on, a VAD loop over the raw stream (not
@@ -220,25 +232,53 @@ export function PersonaConversationView({
   // touching the mic button again. Real transcript in, but the reply is
   // still the existing canned echo — no LLM wired up yet.
   function enqueueTranscription(blob: Blob, mimeType: string, generation: number) {
-    sendQueueRef.current = sendQueueRef.current.then(async () => {
-      if (generation !== listeningGenerationRef.current) return;
+    const processTranscript = async () => {
+      // A segment is complete once it reaches this queue. It should still be
+      // delivered if the user then turns the microphone off while the GPU is
+      // transcribing; stopping the mic only discards an *unfinished* segment.
       setMicStatus((current) => (current === "off" ? current : "transcribing"));
+      setMessageError(null);
       try {
         const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
-        const formData = new FormData();
-        formData.append("audio", blob, `utterance.${extension}`);
-        const response = await fetch(`/api/personas/${personaId}/transcribe`, {
-          method: "POST",
-          body: formData,
-        });
-        const result = (await response.json()) as TranscribeResponseBody;
-        if (generation === listeningGenerationRef.current && result.ok && result.text.trim()) {
-          await sendMessage(result.text.trim());
+        let result: TranscribeResponseBody | null = null;
+        // A short retry handles an occasionally interrupted tunnel/Worker
+        // request without re-recording the user's speech. Rebuild FormData on
+        // every attempt because request bodies are one-shot streams.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const formData = new FormData();
+          formData.append("audio", blob, `utterance.${extension}`);
+          const response = await fetch(`/api/personas/${personaId}/transcribe`, {
+            method: "POST",
+            body: formData,
+          });
+          const candidate = (await response.json().catch(() => null)) as TranscribeResponseBody | null;
+          if (response.ok && candidate?.ok) {
+            result = candidate;
+            break;
+          }
+          if (attempt === 1 || (response.status >= 400 && response.status < 500)) {
+            throw new Error(candidate && !candidate.ok ? candidate.error : "Couldn't transcribe that speech. Please try again.");
+          }
         }
+        const transcript = result?.ok ? result.text.trim() : "";
+        if (!transcript) {
+          throw new Error("Couldn't transcribe that speech. Please try again.");
+        }
+        const sent = await sendMessage(transcript);
+        if (!sent.ok) {
+          throw new Error(sent.error);
+        }
+      } catch (error) {
+        console.error("[voice-input] transcription or message delivery failed", { personaId, generation, error });
+        setMessageError(error instanceof Error ? error.message : "Couldn't transcribe that speech. Please try again.");
       } finally {
         setMicStatus((current) => (current === "off" ? current : "listening"));
       }
-    });
+    };
+
+    // A rejected request must never poison the promise chain; doing so used
+    // to make every later utterance silently stay in "Transcribing…".
+    sendQueueRef.current = sendQueueRef.current.catch(() => undefined).then(processTranscript);
   }
 
   function startUtteranceRecording(generation: number, startedAt: number) {
@@ -528,6 +568,11 @@ export function PersonaConversationView({
               : micStatus === "transcribing"
                 ? "Transcribing…"
                 : "Listening — pause when you're done talking."}
+          </p>
+        )}
+        {messageError && (
+          <p role="alert" className="flex-shrink-0 px-lg pb-xxs font-text text-fine-print text-red-500">
+            {messageError}
           </p>
         )}
 
