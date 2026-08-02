@@ -75,19 +75,29 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         usesTurn: Boolean(tokenResult.turn),
       });
 
-      // Try direct WebRTC first (the lowest-latency path), with TURN kept as
-      // a relay fallback for restrictive NATs. `iceTransportPolicy: relay`
-      // was the direct cause of the repeated candidate errors seen in the
-      // browser when one configured relay listener was unavailable.
-      const iceServers: RTCIceServer[] = [
-        { urls: PUBLIC_STUN_SERVERS },
-        ...(tokenResult.turn ? [{
+      // The GPU server has no directly reachable public IP on any interface
+      // — host and STUN-reflexive candidates from it are guaranteed to
+      // fail. Letting ICE work through those doomed higher-priority pairs
+      // before it ever got to the one viable relay-relay pair was consuming
+      // the whole connection timeout. Forcing relay-only once a TURN relay
+      // is configured skips straight to it. (`iceTransportPolicy: relay`
+      // previously caused hard, guaranteed failures — but that was while
+      // the configured TURN listener itself was unreachable; it's a real
+      // externally-verified relay now, so the failure mode this avoided no
+      // longer applies.) With no TURN configured at all, keep the old
+      // STUN-only/direct behavior — relay-only with zero relay servers
+      // would leave zero viable candidates.
+      const iceServers: RTCIceServer[] = tokenResult.turn
+        ? [{
           urls: tokenResult.turn.urls,
           username: tokenResult.turn.username,
           credential: tokenResult.turn.credential,
-        }] : []),
-      ];
-      const pc = new RTCPeerConnection({ iceServers });
+        }]
+        : [{ urls: PUBLIC_STUN_SERVERS }];
+      const pc = new RTCPeerConnection({
+        iceServers,
+        ...(tokenResult.turn ? { iceTransportPolicy: "relay" as RTCIceTransportPolicy } : {}),
+      });
       pcRef.current = pc;
       pc.addEventListener("icecandidate", (event) => {
         // Candidate metadata is enough to diagnose TURN/STUN routing without
