@@ -5,6 +5,7 @@ import { Button, Modal } from "@/front_end/components/ui";
 import { uploadPersonaAsset } from "@/front_end/state/persona-client";
 import { PERSONA_UPLOAD_LIMITS } from "@/shared/persona-upload-limits";
 import { RecordingConsent } from "./RecordingConsent";
+import { preferredAudioRecording } from "./recording-media";
 import { UploadTileShell } from "./UploadTileShell";
 
 type AudioRecorderTileProps = {
@@ -78,7 +79,8 @@ export function AudioRecorderTile({
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const format = preferredAudioRecording();
+      const recorder = format.mimeType ? new MediaRecorder(stream, { mimeType: format.mimeType }) : new MediaRecorder(stream);
       streamRef.current = stream;
       chunksRef.current = [];
       shouldSaveRef.current = false;
@@ -94,13 +96,15 @@ export function AudioRecorderTile({
         setRecording(false);
         if (!shouldSave) return;
 
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const type = recorder.mimeType || format.mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
         if (blob.size === 0) {
           setError("No audio was captured. Please try again.");
           return;
         }
         setSaving(true);
-        const file = new File([blob], `voice-recording-${Date.now()}.webm`, { type: "audio/webm" });
+        const extension = type.startsWith("audio/mp4") ? "m4a" : "webm";
+        const file = new File([blob], `voice-recording-${Date.now()}.${extension}`, { type });
         const result = await uploadPersonaAsset(personaId, file, "audio", "audio_recording", true);
         setSaving(false);
         if (result.ok) {
@@ -130,7 +134,7 @@ export function AudioRecorderTile({
     <>
       <UploadTileShell
         label="Audio recorder"
-        description="One voice recording per persona — re-recording replaces it"
+        description="One voice recording per persona — normalized to WAV for voice training"
         locked={locked}
         onLockedClick={onLockedClick}
       >

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/front_end/components/ui";
 import { uploadPersonaAsset } from "@/front_end/state/persona-client";
 import { PERSONA_UPLOAD_LIMITS } from "@/shared/persona-upload-limits";
+import { preferredVideoRecording } from "./recording-media";
 import { UploadTileShell } from "./UploadTileShell";
 
 type VideoRecorderTileProps = {
@@ -12,10 +13,6 @@ type VideoRecorderTileProps = {
   onLockedClick?: () => void;
   onUploaded?: () => void;
 };
-
-function recordingMimeType() {
-  return ["video/mp4", "video/webm;codecs=vp8,opus", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
-}
 
 export function VideoRecorderTile({ personaId, locked, onLockedClick, onUploaded }: VideoRecorderTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -76,8 +73,8 @@ export function VideoRecorderTile({ personaId, locked, onLockedClick, onUploaded
     }
     const stream = streamRef.current;
     if (!stream) return;
-    const mimeType = recordingMimeType();
-    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const format = preferredVideoRecording();
+    const recorder = format.mimeType ? new MediaRecorder(stream, { mimeType: format.mimeType }) : new MediaRecorder(stream);
     chunksRef.current = [];
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) chunksRef.current.push(event.data);
@@ -85,7 +82,7 @@ export function VideoRecorderTile({ personaId, locked, onLockedClick, onUploaded
     recorder.onstop = async () => {
       clearRecordingTimers();
       recorderRef.current = null;
-      const type = recorder.mimeType || "video/webm";
+      const type = recorder.mimeType || format.mimeType || "video/webm";
       const extension = type.startsWith("video/mp4") ? "mp4" : "webm";
       const file = new File([new Blob(chunksRef.current, { type })], `camera-recording-${Date.now()}.${extension}`, { type });
       const result = await uploadPersonaAsset(personaId, file, "video", "camera_recording");
@@ -112,7 +109,7 @@ export function VideoRecorderTile({ personaId, locked, onLockedClick, onUploaded
   }
 
   return (
-    <UploadTileShell label="Video recorder" description="Up to 3 camera videos, 15 seconds each" locked={locked} onLockedClick={onLockedClick}>
+    <UploadTileShell label="Video recorder" description="Up to 3 camera videos, 15 seconds each — prepared as MP4 for avatar training" locked={locked} onLockedClick={onLockedClick}>
       {cameraOpen ? (
         <div className="flex flex-col gap-xs">
           <video ref={videoRef} autoPlay muted playsInline className="h-32 w-full rounded-md bg-surface-black object-cover" />

@@ -99,8 +99,8 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
             personaId={personaId}
             type="image"
             label="Photos"
-            description={`Up to ${photoLimit} JPG, PNG, or HEIC photos, 5 MB each`}
-            accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
+            description={`Up to ${photoLimit} JPG or PNG photos, 5 MB each`}
+            accept=".jpg,.jpeg,.png,image/jpeg,image/png"
             maxSizeBytes={PERSONA_UPLOAD_LIMITS.image.maxBytes}
             maxFiles={photoLimit}
             multiple

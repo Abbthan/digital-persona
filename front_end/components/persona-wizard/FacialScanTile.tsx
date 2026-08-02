@@ -5,6 +5,7 @@ import { Button, Modal } from "@/front_end/components/ui";
 import { uploadPersonaAsset } from "@/front_end/state/persona-client";
 import { PERSONA_UPLOAD_LIMITS } from "@/shared/persona-upload-limits";
 import { RecordingConsent } from "./RecordingConsent";
+import { preferredVideoRecording } from "./recording-media";
 import { UploadTileShell } from "./UploadTileShell";
 
 type FacialScanTileProps = {
@@ -14,10 +15,6 @@ type FacialScanTileProps = {
   onLockedClick?: () => void;
   onUploaded?: () => void;
 };
-
-function motionMimeType() {
-  return ["video/webm;codecs=vp8", "video/webm"].find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
-}
 
 function captureSnapshot(video: HTMLVideoElement): Promise<Blob | null> {
   if (video.videoWidth === 0 || video.videoHeight === 0) return Promise.resolve(null);
@@ -112,8 +109,8 @@ export function FacialScanTile({
         video: { facingMode: "user" },
         audio: false,
       });
-      const mimeType = motionMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const format = preferredVideoRecording();
+      const recorder = format.mimeType ? new MediaRecorder(stream, { mimeType: format.mimeType }) : new MediaRecorder(stream);
       streamRef.current = stream;
       chunksRef.current = [];
       snapshotRef.current = null;
@@ -128,7 +125,8 @@ export function FacialScanTile({
         clearTimers();
         recorderRef.current = null;
         const snapshot = await snapshotRef.current;
-        const motionBlob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        const motionType = recorder.mimeType || format.mimeType || "video/webm";
+        const motionBlob = new Blob(chunksRef.current, { type: motionType });
         stopCamera();
         if (!shouldSave) {
           finishingRef.current = false;
@@ -153,7 +151,8 @@ export function FacialScanTile({
           return;
         }
 
-        const motion = new File([motionBlob], `facial-motion-${stamp}.webm`, { type: motionBlob.type || "video/webm" });
+        const extension = motionType.startsWith("video/mp4") ? "mp4" : "webm";
+        const motion = new File([motionBlob], `facial-motion-${stamp}.${extension}`, { type: motionType });
         const motionResult = await uploadPersonaAsset(personaId, motion, "video", "facial_camera", true);
         setSaving(false);
         finishingRef.current = false;

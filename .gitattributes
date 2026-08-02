@@ -1,0 +1,2 @@
+# Unified patches preserve intentional leading marker spaces on blank context lines.
+scripts/gpu-server/patches/*.patch -whitespace

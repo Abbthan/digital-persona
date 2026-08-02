@@ -29,15 +29,15 @@ function fileValidationError(file: File, type: AssetType, source: string): strin
   if (type === "text" && file.size > PERSONA_UPLOAD_LIMITS.document.maxBytes) {
     return "Each document must be 5 MB or smaller.";
   }
-  if (type === "image" && !["jpg", "jpeg", "png", "heic", "heif"].includes(extension)) {
-    return "Photos must be JPG, PNG, or HEIC files.";
+  if (type === "image" && !["jpg", "jpeg", "png"].includes(extension)) {
+    return "Photos must be JPG or PNG files.";
   }
   if (type === "video") {
     if (["camera_recording", "facial_camera"].includes(source) && extension === "webm") return null;
     if (!["mp4", "mov"].includes(extension)) return "Videos must be MP4 or MOV files.";
   }
   if (type === "audio") {
-    if (source === "audio_recording" && extension === "webm") return null;
+    if (source === "audio_recording" && ["webm", "m4a", "mp4"].includes(extension)) return null;
     if (!["mp3", "wav"].includes(extension)) return "Audio files must be MP3 or WAV files.";
   }
   if (type === "text" && !["pdf", "txt", "docx"].includes(extension)) {

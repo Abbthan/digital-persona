@@ -1,0 +1,153 @@
+--- a/app.py
++++ b/app.py
+@@ -59,6 +59,7 @@
+ import tempfile
+ import copy
+ from urllib.parse import urlparse
++import uuid
+ import gc
+ from dotenv import load_dotenv
+ 
+--- a/server/avatar_routes.py
++++ b/server/avatar_routes.py
+@@ -14,6 +14,49 @@
+ # is either a different person or too poor a shot (bad angle/lighting) to
+ # trust either way, and this endpoint treats both the same: don't use it.
+ FACE_MATCH_DISTANCE_THRESHOLD = 0.6
++
++AVATAR_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
++AVATAR_VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".flv"}
++
++
++def _canonical_avatar_source(source_path: str) -> str:
++    """Return an H.264 MP4 source that MuseTalk can decode consistently.
++
++    Browser MediaRecorder only exposes MP4 on some browsers. Chromium
++    generally records WebM, so normalize every uploaded camera/facial clip
++    here instead of pretending a WebM Blob is an MP4 at the frontend.
++    """
++    if not os.path.isfile(source_path):
++        raise ValueError("avatar source file was not found")
++    extension = os.path.splitext(source_path)[1].lower()
++    if extension not in AVATAR_IMAGE_EXTENSIONS | AVATAR_VIDEO_EXTENSIONS:
++        raise ValueError("avatar media must be JPG, PNG, MP4, MOV, or WebM")
++
++    canonical_path = f"{os.path.splitext(source_path)[0]}_musetalk.mp4"
++    if extension in AVATAR_IMAGE_EXTENSIONS:
++        command = [
++            "ffmpeg", "-y", "-loop", "1", "-i", source_path,
++            "-t", "3", "-r", "25", "-c:v", "libx264", "-pix_fmt", "yuv420p",
++            "-an", "-movflags", "+faststart", canonical_path,
++        ]
++    else:
++        command = [
++            "ffmpeg", "-y", "-i", source_path, "-map", "0:v:0", "-an",
++            "-vf", "fps=25", "-c:v", "libx264", "-preset", "veryfast",
++            "-pix_fmt", "yuv420p", "-movflags", "+faststart", canonical_path,
++        ]
++
++    try:
++        subprocess.run(command, check=True, capture_output=True)
++    except FileNotFoundError as error:
++        raise RuntimeError("ffmpeg is required to prepare avatar media") from error
++    except subprocess.CalledProcessError as error:
++        message = error.stderr.decode("utf-8", "replace").strip()
++        raise ValueError(f"couldn't convert avatar media to MP4: {message[-500:]}") from error
++    if not os.path.isfile(canonical_path) or os.path.getsize(canonical_path) == 0:
++        raise ValueError("avatar media conversion produced no MP4 output")
++    logger.info("Avatar source normalized source=%s output=%s", source_path, canonical_path)
++    return canonical_path
+ 
+ def json_ok(data=None):
+     body = {"code": 0, "msg": "ok"}
+@@ -61,21 +104,6 @@
+                     value = await part.text()
+                     params[part.name] = value
+ 
+-            # A single still photo (e.g. a persona's facial scan) has no
+-            # motion for MuseTalk/wav2lip's own frame extraction to work
+-            # with, so loop it into a short silent clip first. Real uploaded
+-            # video takes priority elsewhere in digital_persona's own
+-            # selection logic; this is purely a fallback for photo-only
+-            # sources.
+-            if video_path and os.path.splitext(video_path)[1].lower() in ('.jpg', '.jpeg', '.png'):
+-                looped_path = os.path.splitext(video_path)[0] + '_looped.mp4'
+-                subprocess.run(
+-                    ['ffmpeg', '-y', '-loop', '1', '-i', video_path, '-c:v', 'libx264',
+-                     '-t', '3', '-pix_fmt', 'yuv420p', '-vf', 'fps=25', looped_path],
+-                    check=True, capture_output=True,
+-                )
+-                video_path = looped_path
+-
+             if video_path:
+                 params['video_path'] = video_path
+         else:
+@@ -95,6 +123,7 @@
+         video_path = params['video_path']
+         if not os.path.isabs(video_path):
+             video_path = os.path.join(data_path, video_path)
++        video_path = _canonical_avatar_source(video_path)
+ 
+         save_path = data_path
+ 
+@@ -339,14 +368,7 @@
+     video_path = params["video_path"]
+     if not os.path.isabs(video_path):
+         video_path = os.path.join(data_path, video_path)
+-    if os.path.splitext(video_path)[1].lower() in (".jpg", ".jpeg", ".png"):
+-        looped_path = os.path.splitext(video_path)[0] + "_looped.mp4"
+-        subprocess.run(
+-            ["ffmpeg", "-y", "-loop", "1", "-i", video_path, "-c:v", "libx264",
+-             "-t", "3", "-pix_fmt", "yuv420p", "-vf", "fps=25", looped_path],
+-            check=True, capture_output=True,
+-        )
+-        video_path = looped_path
++    video_path = _canonical_avatar_source(video_path)
+ 
+     task_params = {
+         "video_path": video_path,
+--- a/avatars/musetalk/genavatar.py
++++ b/avatars/musetalk/genavatar.py
+@@ -23,6 +23,8 @@
+ def video2imgs(vid_path, save_path, ext='.png', cut_frame=10000000):
+     cap = cv2.VideoCapture(vid_path)
+     count = 0
++    if not cap.isOpened():
++        raise ValueError(f"Could not open avatar video: {vid_path}")
+     while True:
+         if count > cut_frame:
+             break
+@@ -33,10 +35,13 @@
+             count += 1
+         else:
+             break
++    cap.release()
++    if count == 0:
++        raise ValueError(f"Avatar video contains no decodable frames: {vid_path}")
+ 
+ 
+ def is_video_file(file_path):
+-    video_exts = ['.mp4', '.mkv', '.flv', '.avi', '.mov']
++    video_exts = ['.mp4', '.mkv', '.flv', '.avi', '.mov', '.webm']
+     file_ext = os.path.splitext(file_path)[1].lower()
+     return file_ext in video_exts
+ 
+@@ -96,6 +101,9 @@
+ 
+     input_img_list = sorted(glob.glob(os.path.join(save_full_path, '*.[jpJP][pnPN]*[gG]')))
+     print("extracting landmarks...")
++    if not input_img_list:
++        raise ValueError("Avatar source produced no images for landmark extraction")
++
+     coord_list, frame_list = get_landmark_and_bbox(input_img_list, bbox_shift)
+ 
+     if progress_callback: progress_callback(50)
+@@ -103,6 +111,8 @@
+     input_latent_list = []
+     idx = -1
+     coord_placeholder = (0.0, 0.0, 0.0, 0.0)
++    if not frame_list:
++        raise ValueError("Avatar source produced no usable frames after landmark extraction")
+ 
+     device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+     vae_local, unet_local, pe_local = load_all_model(device=device)
