@@ -8,8 +8,8 @@ URLs, or SSH private keys are included here.
 
 ## Current repo/deploy state
 
-- Branch `main`, HEAD `567182b` (`release: 2026-07-31T06:07:24Z`), pushed and
-  deployed. Two production deploys landed today, both confirmed live on
+- Branch `main`, HEAD `f90b5f7`, pushed and deployed. Working tree clean.
+  Four production deploys landed today/tonight, all confirmed live on
   `echodigitalpersona.com` and `www.echodigitalpersona.com`:
   - Worker version `8fd488d9` — Hero section scroll fix: the hero's animated
     gradient background now stays pinned (`position: fixed`, `-z-10`) while
@@ -27,9 +27,17 @@ URLs, or SSH private keys are included here.
     used before Liquid Glass existed. Verified visible in-browser (light
     mode) before deploying. The unrelated proactive-opening feature added in
     the same original commit was left untouched.
-- Working tree has one uncommitted, non-secret change: `.env.example` gained
-  documented `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL`
-  placeholder entries (see below). Safe to commit whenever convenient.
+  - Commit `cd3c514` (docs-only, no deploy needed) — documented
+    `TURN_SERVER_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` in
+    `.env.example` as placeholders. Committed separately from the deploy
+    below because the release script's own safety guard refuses to release
+    anything matching `.env.*` categorically (by design, to guarantee a
+    real `.env` file can never slip through it) — a deliberate false
+    positive here since the file only ever had placeholder text, not a
+    reason to loosen that guard.
+  - Worker version `429ee549-1455-487e-803b-fa4ff2b9f733` — see "Also
+    deployed today" under Bug 2 below; this is the version that makes the
+    `LIVETALKING_SERVER_URL` cutover actually work.
 - Deleted the `ethanma1209@hotmail.com` test account (username `bro`,
   already-verified, no personas attached) from the database at the owner's
   request, so they can re-register that email to test the verification
@@ -195,9 +203,9 @@ without touching the live Worker secret.
 The `iceTransportPolicy: "relay"` fix above is a **frontend/browser-side**
 change — it only takes effect for real users once it's built into a
 deployed Worker version, unlike the TURN secrets (which apply immediately
-on any already-deployed version). It's been committed and deployed as part
-of today's work (see git log for the exact version). If `LIVETALKING_SERVER_URL`
-gets switched on a Worker version that predates this commit, expect the
+on any already-deployed version). It's live now as Worker version
+`429ee549-1455-487e-803b-fa4ff2b9f733` (HEAD `f90b5f7`). If `LIVETALKING_SERVER_URL`
+gets switched on a Worker version older than this one, expect the
 same `conn:failed` behavior seen in the first attempt above, since the
 client would fall back to default (`all`) ICE transport policy again.
 `back_end/services/db.ts` also picked up a local-dev-only connection-pool

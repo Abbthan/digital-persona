@@ -15,9 +15,9 @@ import type { CreateLiveSessionResponseBody } from "@/back_end/api/personas/[id]
 //
 // live-session returns this persona's own trained MuseTalk avatar_id and
 // CosyVoice voice reference when training has produced one (see
-// back_end/services/persona-training.ts). If neither exists yet — no
-// video/facial-scan or audio was ever uploaded — this falls back to the
-// server's generic demo avatar/voice rather than failing, and says so.
+// back_end/services/persona-training.ts). The parent mounts this component
+// only after both dedicated facial scans have produced a liveAvatarId, so a
+// private conversation never falls back to the server's generic demo face.
 
 // Never send LiveTalking an SDP containing only the GPU host's private
 // candidate. Gather until the browser has a server-reflexive (direct) or
@@ -44,7 +44,6 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [connectAttempt, setConnectAttempt] = useState(0);
-  const [usingFallbackAvatar, setUsingFallbackAvatar] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -61,13 +60,24 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
     setStatus("connecting");
     setError(null);
 
+    function releaseSession(sessionId?: string) {
+      const id = sessionId ?? sessionRef.current?.sessionid;
+      if (!id) return;
+      if (sessionRef.current?.sessionid === id) sessionRef.current = null;
+      void fetch(`/api/personas/${personaId}/live-session/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionid: id }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+
     async function connect() {
       console.info("[live-avatar] connecting", { personaId, attempt: connectAttempt + 1 });
       const tokenResponse = await fetch(`/api/personas/${personaId}/live-session`, { method: "POST" });
       const tokenResult = (await tokenResponse.json()) as CreateLiveSessionResponseBody;
       if (cancelled) return;
       if (!tokenResult.ok) throw new Error(tokenResult.error);
-      setUsingFallbackAvatar(!tokenResult.avatarId);
       console.info("[live-avatar] session configuration received", {
         personaId,
         hasAvatar: Boolean(tokenResult.avatarId),
@@ -144,6 +154,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
           setStatus("connected");
         } else if (pc.connectionState === "failed") {
           connected = false;
+          releaseSession();
           console.error("[live-avatar] peer connection failed", { personaId });
           setStatus("error");
           setError("Lost the connection to the avatar server.");
@@ -176,9 +187,20 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         }),
       });
       if (!offerResponse.ok) throw new Error(`Avatar server returned ${offerResponse.status}.`);
-      const answer = (await offerResponse.json()) as { sdp: string; type: RTCSdpType; sessionid: string };
+      const answer = (await offerResponse.json()) as
+        | { sdp: string; type: RTCSdpType; sessionid: string }
+        | { code: number; msg: string };
+      // A 2xx status isn't itself proof of a real SDP answer — this
+      // endpoint has returned success-status error bodies before (e.g. a
+      // session-limit rejection with no sdp field at all), which otherwise
+      // surfaces only as setRemoteDescription's opaque "Failed to parse
+      // SessionDescription" instead of a clear, actionable message.
+      if (!("sdp" in answer) || !answer.sdp) {
+        throw new Error("msg" in answer && answer.msg ? answer.msg : "Avatar server sent an invalid response.");
+      }
       if (cancelled) {
         pc.close();
+        releaseSession(answer.sessionid);
         return;
       }
       await pc.setRemoteDescription(answer);
@@ -207,6 +229,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       if (!cancelled && !connected) {
         cancelled = true;
         pcRef.current?.close();
+        releaseSession();
         setStatus("error");
         setError("Couldn't reach the avatar server in time.");
       }
@@ -224,7 +247,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       window.clearTimeout(timeoutId);
       pcRef.current?.close();
       pcRef.current = null;
-      sessionRef.current = null;
+      releaseSession();
     };
   }, [personaId, connectAttempt, onSessionReady]);
 
@@ -254,11 +277,6 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
     <div className={`relative flex w-full flex-shrink-0 items-center justify-center overflow-hidden bg-surface-tile-1 ${className ?? "h-48 border-b border-hairline"}`}>
       <video ref={videoRef} autoPlay playsInline muted={false} className="h-full w-full object-cover" />
       <audio ref={audioRef} autoPlay />
-      {status === "connected" && usingFallbackAvatar && (
-        <p className="absolute bottom-xxs left-xs right-xs font-text text-fine-print text-white/80">
-          No trained likeness yet — showing a placeholder avatar. Add a video or facial scan to train this persona&apos;s own.
-        </p>
-      )}
       {status !== "connected" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-xs bg-surface-tile-1">
           <p className="font-text text-caption text-body-muted">
