@@ -4,13 +4,19 @@ import type { AssetType } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { hasPaidAccess, isAssetTypeAllowed } from "@/back_end/services/limits";
-import { startPersonaTraining, TRAINING_RELEVANT_ASSET_TYPES } from "@/back_end/services/persona-training";
+import {
+  failPersonaTrainingStart,
+  PERSONA_TRAINING_STARTING_TASK_ID,
+  startPersonaTraining,
+  TRAINING_RELEVANT_ASSET_TYPES,
+} from "@/back_end/services/persona-training";
 import { ingestDocument } from "@/back_end/services/persona-rag";
 import { deletePersonaMedia, uploadPersonaMedia } from "@/back_end/services/storage";
+import { isDedicatedFacialVideoSource, PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 import { PERSONA_UPLOAD_LIMITS, planLimit } from "@/shared/persona-upload-limits";
 
 const UPLOADABLE_TYPES: AssetType[] = ["image", "video", "audio", "text", "facial_scan"];
-const ALLOWED_SOURCES = new Set(["upload", "audio_recording", "camera_recording", "facial_camera"]);
+const ALLOWED_SOURCES = new Set<string>(Object.values(PERSONA_ASSET_SOURCES));
 function extensionOf(file: File) {
   return file.name.split(".").pop()?.toLowerCase() ?? "";
 }
@@ -33,7 +39,10 @@ function fileValidationError(file: File, type: AssetType, source: string): strin
     return "Photos must be JPG or PNG files.";
   }
   if (type === "video") {
-    if (["camera_recording", "facial_camera"].includes(source) && extension === "webm") return null;
+    if (
+      (source === PERSONA_ASSET_SOURCES.legacyCameraRecording || isDedicatedFacialVideoSource(source)) &&
+      extension === "webm"
+    ) return null;
     if (!["mp4", "mov"].includes(extension)) return "Videos must be MP4 or MOV files.";
   }
   if (type === "audio") {
@@ -71,10 +80,13 @@ function assetLimitError(
   if (type === "facial_scan" && count((asset) => asset.type === "facial_scan") >= PERSONA_UPLOAD_LIMITS.facialScan.max) {
     return "You can add one facial scan per persona.";
   }
-  if (type === "video" && source === "facial_camera" && count((asset) => asset.type === "video" && metadataSource(asset.metadata) === "facial_camera") >= PERSONA_UPLOAD_LIMITS.facialScan.max) {
-    return "You can add one facial motion scan per persona.";
+  if (type === "video" && source === PERSONA_ASSET_SOURCES.guidedFacialScan && count((asset) => asset.type === "video" && metadataSource(asset.metadata) === PERSONA_ASSET_SOURCES.guidedFacialScan) >= PERSONA_UPLOAD_LIMITS.facialScan.max) {
+    return "You can add one guided facial scan per persona.";
   }
-  if (type === "video" && source !== "facial_camera" && count((asset) => asset.type === "video" && metadataSource(asset.metadata) !== "facial_camera") >= PERSONA_UPLOAD_LIMITS.video.max) {
+  if (type === "video" && source === PERSONA_ASSET_SOURCES.passiveFacialScan && count((asset) => asset.type === "video" && metadataSource(asset.metadata) === PERSONA_ASSET_SOURCES.passiveFacialScan) >= PERSONA_UPLOAD_LIMITS.passiveFacialScan.max) {
+    return "You can add one passive facial scan per persona.";
+  }
+  if (type === "video" && !isDedicatedFacialVideoSource(source) && count((asset) => asset.type === "video" && !isDedicatedFacialVideoSource(metadataSource(asset.metadata))) >= PERSONA_UPLOAD_LIMITS.video.max) {
     return `You can upload up to ${PERSONA_UPLOAD_LIMITS.video.max} videos per persona.`;
   }
   if (type === "audio" && source === "audio_recording" && count((asset) => asset.type === "audio" && metadataSource(asset.metadata) === "audio_recording") >= PERSONA_UPLOAD_LIMITS.audioRecording.max) {
@@ -232,7 +244,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         asset.type === type &&
         (
           type === "facial_scan" ||
-          (type === "video" && source === "facial_camera" && metadataSource(asset.metadata) === "facial_camera") ||
+          (type === "video" && isDedicatedFacialVideoSource(source) && metadataSource(asset.metadata) === source) ||
           (type === "audio" && source === "audio_recording" && metadataSource(asset.metadata) === "audio_recording")
         )
       ))
@@ -281,13 +293,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // at the end via /finish instead, since intermediate uploads there
     // aren't a "submit" yet).
     if (!deferTraining && persona.status === "active" && TRAINING_RELEVANT_ASSET_TYPES.includes(type)) {
-      await db.persona.update({ where: { id: personaId }, data: { status: "processing", trainingStartedAt: new Date() } });
+      await db.persona.update({
+        where: { id: personaId },
+        data: {
+          status: "processing",
+          trainingStartedAt: new Date(),
+          avatarTrainingTaskId: PERSONA_TRAINING_STARTING_TASK_ID,
+          liveAvatarId: null,
+          avatarTrainingError: null,
+        },
+      });
       console.info("[persona-training] queued after upload", { personaId, assetId: asset.id, type });
       after(async () => {
         try {
           await startPersonaTraining(db, personaId);
         } catch (trainingError) {
           console.error("Background persona training start failed", trainingError);
+          await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+            console.error("Couldn't finalize failed persona training", stateError);
+          });
         }
       });
     }

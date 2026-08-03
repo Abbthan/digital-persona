@@ -2,7 +2,12 @@ import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
-import { resolvePersonaTrainingState, startPersonaTraining } from "@/back_end/services/persona-training";
+import {
+  failPersonaTrainingStart,
+  PERSONA_TRAINING_STARTING_TASK_ID,
+  resolvePersonaTrainingState,
+  startPersonaTraining,
+} from "@/back_end/services/persona-training";
 
 export type FinishPersonaResponseBody =
   | { ok: true; status: "processing" | "active"; progress: number }
@@ -41,7 +46,13 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     const trainingStartedAt = new Date();
     await db.persona.update({
       where: { id: personaId },
-      data: { status: "processing", trainingStartedAt },
+      data: {
+        status: "processing",
+        trainingStartedAt,
+        avatarTrainingTaskId: PERSONA_TRAINING_STARTING_TASK_ID,
+        liveAvatarId: null,
+        avatarTrainingError: null,
+      },
     });
     after(async () => {
       try {
@@ -49,6 +60,9 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
         await startPersonaTraining(db, personaId);
       } catch (trainingError) {
         console.error("Background initial persona training start failed", trainingError);
+        await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+          console.error("Couldn't finalize failed initial persona training", stateError);
+        });
       }
     });
 

@@ -9,9 +9,9 @@ import { useModalController } from "@/front_end/state/modal-context";
 import { AudioRecorderTile } from "./AudioRecorderTile";
 import { FacialScanTile } from "./FacialScanTile";
 import { FileUploadTile } from "./FileUploadTile";
+import { PassiveFacialScanTile } from "./PassiveFacialScanTile";
 import { PersonaAssetList } from "./PersonaAssetList";
 import { SocialLinkTile } from "./SocialLinkTile";
-import { VideoRecorderTile } from "./VideoRecorderTile";
 
 type UploadWizardProps = {
   open: boolean;
@@ -118,8 +118,21 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
             onLockedClick={openPricing}
             onUploaded={handleAssetUploaded}
           />
-          <VideoRecorderTile personaId={personaId} locked={!isPaid} onLockedClick={openPricing} onUploaded={handleAssetUploaded} />
-          <FacialScanTile personaId={personaId} personaName={personaName} locked={!isPaid} onLockedClick={openPricing} onUploaded={handleAssetUploaded} />
+          <FacialScanTile
+            personaId={personaId}
+            personaName={personaName}
+            locked={!isPaid}
+            onLockedClick={openPricing}
+            onUploaded={handleAssetUploaded}
+            deferTraining
+          />
+          <PassiveFacialScanTile
+            personaId={personaId}
+            locked={!isPaid}
+            onLockedClick={openPricing}
+            onUploaded={handleAssetUploaded}
+            deferTraining
+          />
           <FileUploadTile
             personaId={personaId}
             type="audio"
@@ -133,6 +146,10 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
           />
           <AudioRecorderTile personaId={personaId} personaName={personaName} onUploaded={handleAssetUploaded} />
         </div>
+
+        <p className="mt-sm rounded-md border border-hairline bg-canvas-parchment p-sm font-text text-caption text-ink-muted-80">
+          Live video is enabled only after both the guided and passive facial scans are saved. Without both scans, the persona will remain available for chat only.
+        </p>
 
         <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Text &amp; Links</p>
         <div className="mt-xs grid grid-cols-1 gap-sm sm:grid-cols-2">

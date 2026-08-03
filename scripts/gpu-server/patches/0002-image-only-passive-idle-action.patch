@@ -1,0 +1,22 @@
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -320,11 +320,17 @@
+     
+     def set_custom_state(self, audiotype, reinit=True):
+         print('set_custom_state:', audiotype)
+-        if self.custom_audio_index.get(audiotype) is None:
++        # A passive persona scan is an image-only action: normal ASR silence
++        # supplies the audio frames while this numbered image cycle supplies
++        # breathing/blinking/posture motion. The upstream check incorrectly
++        # rejected every action without a custom audio file, so /set_audiotype
++        # could never explicitly activate the passive scan.
++        if self.custom_index.get(audiotype) is None:
+             return
+         self.custom_audiotype = audiotype
+         if reinit:
+-            self.custom_audio_index[audiotype] = 0
++            if audiotype in self.custom_audio_index:
++                self.custom_audio_index[audiotype] = 0
+             self.custom_index[audiotype] = 0
+ 
+     # ========================== 核心渲染及 Pipeline 桥接 ==========================

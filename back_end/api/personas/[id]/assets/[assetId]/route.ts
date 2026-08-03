@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { deletePersonaMedia } from "@/back_end/services/storage";
-import { startPersonaTraining, TRAINING_RELEVANT_ASSET_TYPES } from "@/back_end/services/persona-training";
+import {
+  failPersonaTrainingStart,
+  PERSONA_TRAINING_STARTING_TASK_ID,
+  startPersonaTraining,
+  TRAINING_RELEVANT_ASSET_TYPES,
+} from "@/back_end/services/persona-training";
 import { deleteRagSource } from "@/back_end/services/persona-rag";
 
 export type DeleteAssetResponseBody = { ok: true } | { ok: false; error: string };
@@ -53,12 +58,24 @@ export async function DELETE(
     // There's no partial "forget just this file" for either model, so this
     // is a full retrain from whatever's left (see startPersonaTraining).
     if (persona.status === "active" && TRAINING_RELEVANT_ASSET_TYPES.includes(asset.type)) {
-      await db.persona.update({ where: { id: personaId }, data: { status: "processing", trainingStartedAt: new Date() } });
+      await db.persona.update({
+        where: { id: personaId },
+        data: {
+          status: "processing",
+          trainingStartedAt: new Date(),
+          avatarTrainingTaskId: PERSONA_TRAINING_STARTING_TASK_ID,
+          liveAvatarId: null,
+          avatarTrainingError: null,
+        },
+      });
       after(async () => {
         try {
           await startPersonaTraining(db, personaId);
         } catch (trainingError) {
           console.error("Background persona retraining start failed", trainingError);
+          await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+            console.error("Couldn't finalize failed persona retraining", stateError);
+          });
         }
       });
     }

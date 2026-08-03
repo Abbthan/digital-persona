@@ -4,6 +4,7 @@ import { ChangeEvent, DragEvent, useRef, useState } from "react";
 import type { AssetType } from "@/generated/prisma/client";
 import type { ListAssetsResponseBody, PersonaAssetDTO } from "@/back_end/api/personas/[id]/assets/route";
 import { uploadPersonaAsset } from "@/front_end/state/persona-client";
+import { isDedicatedFacialVideoSource } from "@/shared/persona-asset-sources";
 import { cn } from "@/shared/utils";
 import { UploadTileShell } from "./UploadTileShell";
 
@@ -48,7 +49,7 @@ export function FileUploadTile({
     // A live facial scan saves a dedicated motion-reference clip. It has its
     // own one-scan ceiling and should not consume one of the three ordinary
     // video-upload slots.
-    if (type === "video") return asset.source !== "facial_camera";
+    if (type === "video") return !isDedicatedFacialVideoSource(asset.source);
     return true;
   }
 

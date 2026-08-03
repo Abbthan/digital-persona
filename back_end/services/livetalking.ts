@@ -144,6 +144,29 @@ export async function setLiveAvatarIdleAction({
   if (!response.ok) throw new Error(`Avatar action server returned ${response.status}.`);
 }
 
+/** Releases a GPU/WebRTC session when its browser peer is closed or times out. */
+export async function closeLiveAvatarSession({
+  userId,
+  personaId,
+  sessionId,
+}: {
+  userId: string;
+  personaId: string;
+  sessionId: string;
+}): Promise<void> {
+  const serverUrl = liveTalkingServerUrl();
+  const token = await createLiveSessionToken(userId, personaId);
+  if (!serverUrl || !token) return;
+
+  const response = await fetch(`${serverUrl}/close_session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ sessionid: sessionId }),
+    signal: AbortSignal.timeout(4_000),
+  });
+  if (!response.ok) throw new Error(`Avatar close server returned ${response.status}.`);
+}
+
 // --- Server-to-server calls (avatar/voice training) -------------------------
 // Everything below runs from this backend directly against the GPU box, not
 // from the browser — same signed-token scheme, minted with a fixed "system"

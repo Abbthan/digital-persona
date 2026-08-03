@@ -1,0 +1,13 @@
+--- a/server/rtc_manager.py
++++ b/server/rtc_manager.py
+@@ -80,7 +80,15 @@
+         except MaxSessionError as e:
+             logger.warning("Rejecting offer: %s", e)
++            # A session-limit rejection is not a successful SDP answer.
++            # Returning 200 made browsers pass this JSON into
++            # setRemoteDescription and surface an opaque SDP parse error.
+             return web.Response(
++                status=503,
+                 content_type="application/json",
+                 text=json.dumps({"code": -1, "msg": str(e)}),
+             )

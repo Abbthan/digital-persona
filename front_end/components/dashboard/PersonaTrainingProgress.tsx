@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/front_end/components/ui";
 import type { PersonaTrainingResponseBody } from "@/back_end/api/personas/[id]/training/route";
 
-export type TrainingPersonaSummary = { id: string; name: string; status: string };
+export type TrainingPersonaSummary = { id: string; name: string; status: string; trainingStartedAt: string | null };
 
 type PersonaTrainingProgressProps = {
   personas: TrainingPersonaSummary[];
@@ -13,11 +13,18 @@ type PersonaTrainingProgressProps = {
   onCompleted: (personaId: string) => void;
 };
 
+function trainingRunKey(persona: TrainingPersonaSummary) {
+  return `${persona.id}:${persona.trainingStartedAt ?? "legacy"}`;
+}
+
 export function PersonaTrainingProgress({ personas, modalPersonaId, onCloseModal, onCompleted }: PersonaTrainingProgressProps) {
-  const processingPersonas = useMemo(() => personas.filter((persona) => persona.status === "processing"), [personas]);
+  const [locallyCompletedRuns, setLocallyCompletedRuns] = useState<string[]>([]);
+  const processingPersonas = useMemo(() => personas.filter((persona) => (
+    persona.status === "processing" && !locallyCompletedRuns.includes(trainingRunKey(persona))
+  )), [personas, locallyCompletedRuns]);
   const processingKey = processingPersonas.map((persona) => persona.id).join(":");
   const [progressByPersona, setProgressByPersona] = useState<Record<string, number>>({});
-  const completedIdsRef = useRef(new Set<string>());
+  const completedRunsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (processingPersonas.length === 0) return;
@@ -25,16 +32,17 @@ export function PersonaTrainingProgress({ personas, modalPersonaId, onCloseModal
     async function poll() {
       const completed: string[] = [];
       const entries = await Promise.all(processingPersonas.map(async (persona) => {
+        const currentRunKey = trainingRunKey(persona);
         try {
           const response = await fetch(`/api/personas/${persona.id}/training`, { cache: "no-store" });
           const result = await response.json() as PersonaTrainingResponseBody;
           if (!result.ok) return null;
-          if (result.status === "active" && !completedIdsRef.current.has(persona.id)) {
-            completedIdsRef.current.add(persona.id);
+          if (result.status === "active" && !completedRunsRef.current.has(currentRunKey)) {
+            completedRunsRef.current.add(currentRunKey);
+            setLocallyCompletedRuns((current) => current.includes(currentRunKey) ? current : [...current, currentRunKey]);
             completed.push(persona.id);
           }
-          if (result.status === "processing") completedIdsRef.current.delete(persona.id);
-          return [persona.id, result.progress] as const;
+          return [persona.id, result.status === "processing" ? Math.min(99, result.progress) : 100] as const;
         } catch {
           return null;
         }

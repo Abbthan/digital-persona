@@ -13,9 +13,9 @@ import type { DeletePersonaResponseBody } from "@/back_end/api/personas/[id]/rou
 import { AudioRecorderTile } from "@/front_end/components/persona-wizard/AudioRecorderTile";
 import { FacialScanTile } from "@/front_end/components/persona-wizard/FacialScanTile";
 import { FileUploadTile } from "@/front_end/components/persona-wizard/FileUploadTile";
+import { PassiveFacialScanTile } from "@/front_end/components/persona-wizard/PassiveFacialScanTile";
 import { PersonaAssetList } from "@/front_end/components/persona-wizard/PersonaAssetList";
 import { SocialLinkTile } from "@/front_end/components/persona-wizard/SocialLinkTile";
-import { VideoRecorderTile } from "@/front_end/components/persona-wizard/VideoRecorderTile";
 
 type PersonaManagerModalProps = {
   persona: { id: string; name: string } | null;
@@ -220,15 +220,15 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
                 onLockedClick={openPricing}
                 onUploaded={handleAssetUploaded}
               />
-              <VideoRecorderTile
+              <FacialScanTile
                 personaId={personaId}
+                personaName={persona.name}
                 locked={!isPaid}
                 onLockedClick={openPricing}
                 onUploaded={handleAssetUploaded}
               />
-              <FacialScanTile
+              <PassiveFacialScanTile
                 personaId={personaId}
-                personaName={persona.name}
                 locked={!isPaid}
                 onLockedClick={openPricing}
                 onUploaded={handleAssetUploaded}
@@ -250,6 +250,10 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
                 onUploaded={handleAssetUploaded}
               />
             </div>
+
+            <p className="mt-sm rounded-md border border-hairline bg-canvas-parchment p-sm font-text text-caption text-ink-muted-80">
+              Live video is enabled only after both the guided and passive facial scans are saved. Without both scans, the persona remains available for chat only.
+            </p>
 
             <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Text &amp; Links</p>
             <div className="mt-xs grid grid-cols-1 gap-sm sm:grid-cols-2">

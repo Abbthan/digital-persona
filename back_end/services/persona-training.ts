@@ -1,11 +1,11 @@
 import type { AssetType, PrismaClient } from "@/generated/prisma/client";
 import {
-  checkFaceMatch,
   getAvatarReadiness,
   getAvatarTrainingTask,
   submitAvatarTrainingJob,
 } from "@/back_end/services/live-avatar";
 import { saveVoiceReference } from "@/back_end/services/speech";
+import { PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 
 export type PersonaTrainingState = {
   status: "processing" | "active";
@@ -22,69 +22,35 @@ export const TRAINING_RELEVANT_ASSET_TYPES: AssetType[] = ["image", "video", "fa
 
 type AssetRow = { id: string; type: AssetType; url: string; metadata: unknown };
 
+export const PERSONA_TRAINING_STARTING_TASK_ID = "starting";
+const TRAINING_START_TIMEOUT_MS = 3 * 60_000;
+
 function metadataOf(metadata: unknown): { originalName?: string; size?: number; source?: string } {
   return metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>) : {};
 }
 
-// The dedicated facial recorder produces a face reference and a paired motion
-// clip from the same camera session. That clip is the primary visual source:
-// it gives MuseTalk an intentional, front-facing likeness instead of letting
-// an unrelated upload replace it merely because it happens to score well in
-// face matching. Uploaded videos remain useful assistive material: when a
-// facial scan exists, they are checked against it before being considered as
-// fallbacks for personas that do not have the paired facial-motion clip.
-//
-// LiveTalking's current task-from-url API accepts exactly one visual source
-// per MuseTalk task. Supplying the facial-motion clip preserves it as the
-// actual training source; passing several uploaded videos to that API would
-// just make the last task overwrite the first avatar rather than improve it.
 function originalName(asset: AssetRow): string {
   return metadataOf(asset.metadata).originalName ?? asset.url.split("/").pop() ?? "file";
 }
 
-async function selectAvatarSourceAsset(
-  personaId: string,
-  assets: AssetRow[],
-): Promise<AssetRow | null> {
-  const facialScan = assets.find((asset) => asset.type === "facial_scan") ?? null;
-  const videos = assets.filter((asset) => asset.type === "video");
-  const images = assets.filter((asset) => asset.type === "image");
-  const facialMotion = videos.find((asset) => metadataOf(asset.metadata).source === "facial_camera") ?? null;
+/**
+ * Live video is deliberately gated on two purpose-recorded inputs. The
+ * guided scan supplies an explicit identity/consent reference; the passive
+ * scan supplies the closed-mouth blinking, breathing, and posture motion
+ * that LiveTalking loops while no speech is playing. Ordinary video uploads
+ * remain available to RAG/media analysis, but cannot silently enable a live
+ * likeness or replace either consented scan.
+ */
+export function selectAvatarSourceAsset(assets: AssetRow[]): AssetRow | null {
+  const facialReference = assets.find((asset) => asset.type === "facial_scan") ?? null;
+  const guidedScan = assets.find((asset) => (
+    asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.guidedFacialScan
+  )) ?? null;
+  const passiveScan = assets.find((asset) => (
+    asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.passiveFacialScan
+  )) ?? null;
 
-  // The paired recording is deliberately always first. Its still image and
-  // motion frames were captured together, so it is the strongest available
-  // evidence of both identity and natural idle movement.
-  if (facialMotion) return facialMotion;
-
-  if (facialScan && videos.length > 0) {
-    let best: { asset: AssetRow; distance: number } | null = null;
-    for (const video of videos) {
-      // Both private R2 files are streamed directly to the A800 for face
-      // matching. The Worker only sends their asset identifiers/URLs.
-      const result = await checkFaceMatch(
-        personaId,
-        { id: facialScan.id, fileName: originalName(facialScan) },
-        { id: video.id, fileName: originalName(video) },
-      );
-      if (result?.match && (best === null || (result.distance ?? Infinity) < best.distance)) {
-        best = { asset: video, distance: result.distance ?? Infinity };
-      }
-    }
-    if (best) return best.asset;
-  }
-
-  if (facialScan) return facialScan;
-
-  const fallbackVideo = videos[0];
-  if (fallbackVideo) return fallbackVideo;
-
-  // A single high-quality photo is sufficient for MuseTalk's image-driven
-  // training route when the creator did not provide a dedicated facial scan
-  // or a video. It is intentionally a last resort: a scan/video remains a
-  // more explicit and reliable likeness source.
-  const fallbackImage = images[0];
-  if (fallbackImage) return fallbackImage;
-  return null;
+  return facialReference && guidedScan && passiveScan ? passiveScan : null;
 }
 
 // The dedicated recorder produces exactly one known-good sample; uploaded
@@ -122,28 +88,18 @@ export async function startPersonaTraining(db: PrismaClient, personaId: string):
   });
 
   const voiceAsset = selectVoiceRefAsset(assets);
+  const avatarSelection = selectAvatarSourceAsset(assets);
   console.info("[persona-training] source inventory", {
     personaId,
     assetTypes: assets.map((asset) => asset.type),
     voiceSourceAssetId: voiceAsset?.id ?? null,
+    avatarSourceAssetId: avatarSelection?.id ?? null,
   });
-  if (voiceAsset) {
-    const transcript = await saveVoiceReference(personaId, {
-      id: voiceAsset.id,
-      fileName: originalName(voiceAsset),
-    });
-    await db.persona.update({
-      where: { id: personaId },
-      data: { voiceRefAssetId: voiceAsset.id, voiceRefTranscript: transcript },
-    });
-  } else {
-    await db.persona.update({
-      where: { id: personaId },
-      data: { voiceRefAssetId: null, voiceRefTranscript: null },
-    });
-  }
 
-  const avatarSelection = await selectAvatarSourceAsset(personaId, assets);
+  // Submit the avatar job before voice transcription. The GPU returns a task
+  // ID immediately, which replaces the temporary "starting" sentinel before
+  // a slower Whisper/CosyVoice reference operation can run. This is what
+  // makes progress polling durable instead of racing to a false 100%.
   if (avatarSelection) {
     console.info("[persona-training] avatar source selected", {
       personaId,
@@ -166,27 +122,108 @@ export async function startPersonaTraining(db: PrismaClient, personaId: string):
         // before the task has completed can otherwise make a conversation
         // wait on incomplete files (or fail outright).
         ? { avatarTrainingTaskId: result.taskId, liveAvatarId: null, avatarTrainingError: null }
-        : { avatarTrainingTaskId: null, avatarTrainingError: result.error },
+        : {
+            status: "active",
+            trainingStartedAt: null,
+            avatarTrainingTaskId: null,
+            liveAvatarId: null,
+            avatarTrainingError: result.error,
+          },
     });
-    return;
   }
 
-  // No usable source (or the storage read failed) — nothing to train.
-  console.warn("[persona-training] no avatar source found", { personaId });
+  // Voice-reference preparation is independent from MuseTalk. A failed
+  // transcript must not discard an already-running avatar task or strand its
+  // progress state; it simply leaves the existing/default voice unavailable.
+  try {
+    if (voiceAsset) {
+      const transcript = await saveVoiceReference(personaId, {
+        id: voiceAsset.id,
+        fileName: originalName(voiceAsset),
+      });
+      await db.persona.update({
+        where: { id: personaId },
+        data: { voiceRefAssetId: voiceAsset.id, voiceRefTranscript: transcript },
+      });
+    } else {
+      await db.persona.update({
+        where: { id: personaId },
+        data: { voiceRefAssetId: null, voiceRefTranscript: null },
+      });
+    }
+  } catch (error) {
+    console.error("[persona-training] voice reference preparation failed", { personaId, error });
+  }
+
+  if (avatarSelection) return;
+
+  // Missing either dedicated scan means chat-only by design. Clear the
+  // database pointer so the old or generic avatar can never appear. The
+  // generated package stays private and inert until the next retrain or the
+  // persona's full GPU cleanup; deleting it here would also delete the voice
+  // reference that was just refreshed above.
+  console.info("[persona-training] live video disabled until both facial scans exist", { personaId });
   await db.persona.update({
     where: { id: personaId },
-    data: { avatarTrainingTaskId: null, liveAvatarId: null },
+    data: {
+      status: "active",
+      trainingStartedAt: null,
+      avatarTrainingTaskId: null,
+      liveAvatarId: null,
+      avatarTrainingError: null,
+    },
+  });
+}
+
+export async function failPersonaTrainingStart(
+  db: PrismaClient,
+  personaId: string,
+  error: unknown,
+): Promise<void> {
+  const message = error instanceof Error ? error.message : "Persona preparation could not start.";
+  await db.persona.updateMany({
+    where: { id: personaId, status: "processing" },
+    data: {
+      status: "active",
+      trainingStartedAt: null,
+      avatarTrainingTaskId: null,
+      liveAvatarId: null,
+      avatarTrainingError: message,
+    },
   });
 }
 
 export async function resolvePersonaTrainingState(
   db: PrismaClient,
-  persona: { id: string; status: string; avatarTrainingTaskId: string | null },
+  persona: { id: string; status: string; avatarTrainingTaskId: string | null; trainingStartedAt?: Date | null },
 ): Promise<PersonaTrainingState> {
   if (persona.status !== "processing") return { status: "active", progress: 100 };
 
+  if (persona.avatarTrainingTaskId === PERSONA_TRAINING_STARTING_TASK_ID) {
+    const ageMs = persona.trainingStartedAt ? Date.now() - persona.trainingStartedAt.getTime() : 0;
+    if (ageMs < TRAINING_START_TIMEOUT_MS) return { status: "processing", progress: 1 };
+
+    const error = "Persona preparation did not start in time. The persona is available for chat; re-save either facial scan to retry live video.";
+    await db.persona.updateMany({
+      where: {
+        id: persona.id,
+        status: "processing",
+        avatarTrainingTaskId: PERSONA_TRAINING_STARTING_TASK_ID,
+      },
+      data: {
+        status: "active",
+        trainingStartedAt: null,
+        avatarTrainingTaskId: null,
+        liveAvatarId: null,
+        avatarTrainingError: error,
+      },
+    });
+    return { status: "active", progress: 100 };
+  }
+
   if (!persona.avatarTrainingTaskId) {
-    // Nothing to wait on (no video/facial-scan asset) — done immediately.
+    // Compatibility recovery for records created before the explicit
+    // "starting" sentinel existed. New jobs never enter this ambiguous state.
     await db.persona.updateMany({
       where: { id: persona.id, status: "processing" },
       data: { status: "active", trainingStartedAt: null },
@@ -225,7 +262,10 @@ export async function resolvePersonaTrainingState(
     return { status: "processing", progress: 0 };
   }
   if (task.status === "pending" || task.status === "processing" || task.status === "running") {
-    return { status: "processing", progress: task?.progress ?? 0 };
+    // 100 means usable, not merely "GPU reported its last frame". Keep the
+    // visible bar below completion until the durable task status is complete
+    // and liveAvatarId has been committed below.
+    return { status: "processing", progress: Math.min(99, Math.max(1, task.progress ?? 1)) };
   }
 
   // completed or failed — either way the persona becomes usable; a failed

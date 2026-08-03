@@ -19,6 +19,7 @@ import type { PersonaInitiativeResponseBody } from "@/back_end/api/personas/[id]
 type PersonaConversationViewProps = {
   personaId: string;
   personaName: string;
+  videoReady: boolean;
 };
 
 type MicStatus = "off" | "listening" | "speaking" | "transcribing";
@@ -73,6 +74,7 @@ function speechBandRatio(analyser: AnalyserNode, buffer: Uint8Array<ArrayBuffer>
 export function PersonaConversationView({
   personaId,
   personaName,
+  videoReady,
 }: PersonaConversationViewProps) {
   const { user } = useAuth();
   const { locale } = useLocale();
@@ -87,7 +89,7 @@ export function PersonaConversationView({
   const [sending, setSending] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
   const [micStatus, setMicStatus] = useState<MicStatus>("off");
-  const [liveVideoEnabled, setLiveVideoEnabled] = useState(true);
+  const [liveVideoEnabled, setLiveVideoEnabled] = useState(videoReady);
   const [chatPosition, setChatPosition] = useState<{ x: number; y: number } | null>(null);
   const [chatMinimized, setChatMinimized] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -107,7 +109,7 @@ export function PersonaConversationView({
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const initiativeRequestRef = useRef(false);
 
-  const videoMode = isPaid && liveVideoEnabled;
+  const videoMode = isPaid && videoReady && liveVideoEnabled;
 
   // Loading a persona's history is a canonical data-fetch effect. No need to
   // reset `loading` here — DashboardShell mounts this component with
@@ -460,14 +462,14 @@ export function PersonaConversationView({
             Turn video off
           </button>
         </>
-      ) : isPaid ? (
+      ) : isPaid && videoReady ? (
         <div className="flex flex-shrink-0 items-center justify-between gap-xs border-b border-hairline bg-canvas-parchment px-lg py-sm">
           <p className="font-text text-caption text-ink-muted-80">Live video is off.</p>
           <Button variant="secondary" onClick={() => setLiveVideoEnabled(true)}>
             Turn video on
           </Button>
         </div>
-      ) : (
+      ) : !isPaid ? (
         <div className="flex flex-shrink-0 flex-col items-center gap-xs border-b border-hairline bg-canvas-parchment px-lg py-sm text-center sm:flex-row sm:justify-between sm:text-left">
           <p className="font-text text-caption text-ink-muted-80">
             Real-time voice and video conversation is a subscriber feature.
@@ -475,6 +477,12 @@ export function PersonaConversationView({
           <Button variant="secondary" onClick={() => openModal("pricing")}>
             Upgrade
           </Button>
+        </div>
+      ) : (
+        <div className="flex flex-shrink-0 items-center border-b border-hairline bg-canvas-parchment px-lg py-sm">
+          <p className="font-text text-caption text-ink-muted-80">
+            Complete both the guided and passive facial scans to enable live video. Chat remains available.
+          </p>
         </div>
       )}
 

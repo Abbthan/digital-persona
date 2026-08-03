@@ -10,7 +10,7 @@ export type CreatePersonaResponseBody =
   | { ok: false; error: string };
 
 export type ListPersonasResponseBody =
-  | { ok: true; personas: { id: string; name: string; status: string }[] }
+  | { ok: true; personas: { id: string; name: string; status: string; videoReady: boolean; trainingStartedAt: string | null }[] }
   | { ok: false; error: string };
 
 export async function GET() {
@@ -27,9 +27,16 @@ export async function GET() {
     const personas = await db.persona.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, liveAvatarId: true, trainingStartedAt: true },
     });
-    return NextResponse.json<ListPersonasResponseBody>({ ok: true, personas });
+    return NextResponse.json<ListPersonasResponseBody>({
+      ok: true,
+      personas: personas.map(({ liveAvatarId, trainingStartedAt, ...persona }) => ({
+        ...persona,
+        videoReady: Boolean(liveAvatarId),
+        trainingStartedAt: trainingStartedAt?.toISOString() ?? null,
+      })),
+    });
   } catch (error) {
     console.error("GET /api/personas failed", error);
     return NextResponse.json<ListPersonasResponseBody>(

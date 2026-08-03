@@ -4,6 +4,7 @@ export const PERSONA_UPLOAD_LIMITS = {
   audioUpload: { free: 3, paid: 10, maxBytes: 1 * 1024 * 1024 },
   video: { max: 3, maxBytes: 20 * 1024 * 1024, maxSeconds: 15 },
   facialScan: { max: 1, maxSeconds: 40 },
+  passiveFacialScan: { max: 1, maxSeconds: 20 },
   audioRecording: { max: 1, maxSeconds: 40 },
 } as const;
 

@@ -21,7 +21,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     const db = getDb();
     const persona = await db.persona.findFirst({
       where: { id: personaId, userId: user.id },
-      select: { id: true, status: true, avatarTrainingTaskId: true },
+      select: { id: true, status: true, avatarTrainingTaskId: true, trainingStartedAt: true },
     });
     if (!persona) {
       return NextResponse.json<PersonaTrainingResponseBody>(

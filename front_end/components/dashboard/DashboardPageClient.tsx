@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import { DashboardShell } from "@/front_end/components/dashboard/DashboardShell";
 import { useAuth } from "@/front_end/state/auth-context";
 
-type PersonaSummary = { id: string; name: string; status: string };
+type PersonaSummary = {
+  id: string;
+  name: string;
+  status: string;
+  videoReady: boolean;
+  trainingStartedAt: string | null;
+};
 
 type ListPersonasResponse =
   | { ok: true; personas: PersonaSummary[] }

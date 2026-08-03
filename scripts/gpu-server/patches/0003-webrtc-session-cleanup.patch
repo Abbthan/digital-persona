@@ -1,0 +1,92 @@
+--- a/server/rtc_manager.py
++++ b/server/rtc_manager.py
+@@ -53,7 +53,17 @@
+         """
+         self.opt = opt
+         self.pcs: set = set()
++        self.session_pcs: dict[str, RTCPeerConnection] = {}
+ 
++    async def close_session(self, sessionid: str):
++        """Close a peer and release its avatar renderer idempotently."""
++        pc = self.session_pcs.pop(sessionid, None)
++        if pc is not None:
++            if pc.connectionState != "closed":
++                await pc.close()
++            self.pcs.discard(pc)
++        session_manager.remove_session(sessionid)
++
+     async def handle_offer(self, request):
+         """处理 WebRTC offer 信令"""
+         params = await request.json()
+@@ -95,15 +105,29 @@
+             configuration=RTCConfiguration(iceServers=ice_servers)
+         )
+         self.pcs.add(pc)
++        self.session_pcs[sessionid] = pc
+ 
+         @pc.on("connectionstatechange")
+         async def on_connectionstatechange():
+             logger.info("Connection state is %s", pc.connectionState)
+             if pc.connectionState in ("failed", "closed"):
+-                await pc.close()
+-                self.pcs.discard(pc)
+-                session_manager.remove_session(sessionid)
++                await self.close_session(sessionid)
+ 
++        async def reap_unconnected_session():
++            # A browser can abandon an offer while ICE remains "connecting"
++            # forever. Without a deadline those half-open peers consume every
++            # max_session slot and make all later visitors fail immediately.
++            await asyncio.sleep(45)
++            if pc.connectionState not in ("connected", "closed"):
++                logger.warning(
++                    "Closing unconnected session %s after ICE timeout (state=%s)",
++                    sessionid,
++                    pc.connectionState,
++                )
++                await self.close_session(sessionid)
++
++        asyncio.create_task(reap_unconnected_session())
++
+         # 添加发送轨道
+         from server.webrtc import HumanPlayer
+         player = HumanPlayer(avatar_session)
+@@ -174,3 +198,4 @@
+         coros = [pc.close() for pc in self.pcs]
+         await asyncio.gather(*coros)
+         self.pcs.clear()
++        self.session_pcs.clear()
+--- a/server/routes.py
++++ b/server/routes.py
+@@ -232,6 +232,23 @@
+         return json_ok(data={"sessions": sessions_info})
+     except Exception as e:
+         logger.exception('admin_sessions exception:')
++        return json_error(str(e))
++
++
++async def close_session(request):
++    """Explicitly release a browser WebRTC session on navigation/unload."""
++    try:
++        params = await request.json()
++        sessionid = str(params.get("sessionid", ""))
++        if not sessionid:
++            return json_error("sessionid is required")
++        rtc_manager = request.app.get("rtc_manager")
++        if rtc_manager is None:
++            return json_error("RTC manager is unavailable")
++        await rtc_manager.close_session(sessionid)
++        return json_ok()
++    except Exception as e:
++        logger.exception("close_session exception:")
+         return json_error(str(e))
+ 
+ 
+@@ -247,6 +264,7 @@
+     app.router.add_post("/is_speaking", is_speaking)
+     app.router.add_get("/api/admin/config", admin_config)
+     app.router.add_get("/api/admin/sessions", admin_sessions)
++    app.router.add_post("/close_session", close_session)
+     app.router.add_get('/sse', sse_handler)
+ 
+     # ── Local ASR endpoint (SenseVoice/FunASR) ── Issue #604 ──

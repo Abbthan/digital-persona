@@ -44,6 +44,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!persona || persona.status !== "active") {
     return NextResponse.json({ ok: false, error: "Persona not found." }, { status: 404 });
   }
+  if (!persona.liveAvatarId) {
+    return NextResponse.json(
+      { ok: false, error: "Complete both the guided and passive facial scans to enable live video." },
+      { status: 409 },
+    );
+  }
 
   const body = await request.json().catch(() => null) as { sdp?: unknown; type?: unknown } | null;
   const sdp = typeof body?.sdp === "string" ? body.sdp : "";
@@ -61,13 +67,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const liveOffer = {
       sdp,
       type,
-      ...(persona.liveAvatarId ? {
+      ...{
         avatar: persona.liveAvatarId,
         // LiveTalking calls `audiotype: 1` for its normal silence state.
         // The configured numbered source frames provide actual natural idle
         // motion instead of repeating a static placeholder frame.
         custom_config: personaIdleActionConfig(persona.liveAvatarId),
-      } : {}),
+      },
       ...(persona.voiceRefTranscript ? {
         refaudio: `data/voice_refs/${personaId}.wav`,
         reftext: persona.voiceRefTranscript,

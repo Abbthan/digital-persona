@@ -1,0 +1,5 @@
+--- a/start-livetalking.sh
++++ b/start-livetalking.sh
+@@ -27 +27 @@
+-exec .venv/bin/python app.py --transport webrtc --model musetalk --avatar_id musetalk_test1 --tts cosyvoice --TTS_SERVER http://127.0.0.1:9880 --batch_size 4 -l 5 -r 5
++exec .venv/bin/python app.py --transport webrtc --model musetalk --avatar_id musetalk_test1 --tts cosyvoice --TTS_SERVER http://127.0.0.1:9880 --batch_size 4 --max_session 10 -l 5 -r 5

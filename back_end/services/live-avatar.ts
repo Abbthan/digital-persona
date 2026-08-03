@@ -10,6 +10,7 @@
 export {
   LIVE_SESSION_TOKEN_TTL_SECONDS,
   checkFaceMatch,
+  closeLiveAvatarSession,
   createLiveSessionToken,
   deletePersonaGpuFiles,
   getAvatarReadiness,

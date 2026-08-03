@@ -14,8 +14,7 @@ import { voiceRefPath } from "@/back_end/services/speech";
 export type CreateLiveSessionResponseBody =
   | {
       ok: true;
-      /** null until avatar training has completed — the caller falls back to the server's default demo avatar. */
-      avatarId: string | null;
+      avatarId: string;
       /** null until voice training has completed — the caller falls back to the server's default TTS voice. */
       refAudio: string | null;
       refText: string | null;
@@ -61,6 +60,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (persona.status !== "active") {
       return NextResponse.json<CreateLiveSessionResponseBody>(
         { ok: false, error: "This persona is still being prepared." },
+        { status: 409 },
+      );
+    }
+    if (!persona.liveAvatarId) {
+      return NextResponse.json<CreateLiveSessionResponseBody>(
+        { ok: false, error: "Complete both the guided and passive facial scans to enable live video." },
         { status: 409 },
       );
     }

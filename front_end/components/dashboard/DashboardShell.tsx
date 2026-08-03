@@ -14,7 +14,13 @@ import { personaLimitFor } from "@/back_end/services/limits";
 import { useModalController } from "@/front_end/state/modal-context";
 import { cn } from "@/shared/utils";
 
-type PersonaSummary = { id: string; name: string; status: string };
+type PersonaSummary = {
+  id: string;
+  name: string;
+  status: string;
+  videoReady: boolean;
+  trainingStartedAt: string | null;
+};
 
 type DashboardShellProps = {
   user: {
@@ -107,7 +113,12 @@ export function DashboardShell({ user, personas, onPersonasChanged }: DashboardS
   }
 
   function handleTrainingStarted(persona: { id: string; name: string }) {
-    setNewlyPreparing({ ...persona, status: "processing" });
+    setNewlyPreparing({
+      ...persona,
+      status: "processing",
+      videoReady: false,
+      trainingStartedAt: new Date().toISOString(),
+    });
     setTrainingModalPersonaId(persona.id);
     onPersonasChanged?.();
   }
@@ -284,6 +295,7 @@ export function DashboardShell({ user, personas, onPersonasChanged }: DashboardS
             key={selectedPersona.id}
             personaId={selectedPersona.id}
             personaName={selectedPersona.name}
+            videoReady={selectedPersona.videoReady}
           />
         ) : (
           <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-hairline bg-canvas">

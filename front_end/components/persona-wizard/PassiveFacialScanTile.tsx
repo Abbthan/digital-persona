@@ -5,41 +5,28 @@ import { Button, Modal } from "@/front_end/components/ui";
 import { uploadPersonaAsset } from "@/front_end/state/persona-client";
 import { PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 import { PERSONA_UPLOAD_LIMITS } from "@/shared/persona-upload-limits";
-import { RecordingConsent } from "./RecordingConsent";
 import { preferredVideoRecording } from "./recording-media";
 import { UploadTileShell } from "./UploadTileShell";
 
-type FacialScanTileProps = {
+type PassiveFacialScanTileProps = {
   personaId: string;
-  personaName: string;
   locked?: boolean;
   onLockedClick?: () => void;
   onUploaded?: () => void;
   deferTraining?: boolean;
 };
 
-function captureSnapshot(video: HTMLVideoElement): Promise<Blob | null> {
-  if (video.videoWidth === 0 || video.videoHeight === 0) return Promise.resolve(null);
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext("2d")?.drawImage(video, 0, 0);
-  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-}
-
-export function FacialScanTile({
+export function PassiveFacialScanTile({
   personaId,
-  personaName,
   locked,
   onLockedClick,
   onUploaded,
   deferTraining = false,
-}: FacialScanTileProps) {
+}: PassiveFacialScanTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const snapshotRef = useRef<Promise<Blob | null> | null>(null);
   const shouldSaveRef = useRef(false);
   const finishingRef = useRef(false);
   const timerRef = useRef<number | null>(null);
@@ -47,7 +34,7 @@ export function FacialScanTile({
   const [open, setOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(PERSONA_UPLOAD_LIMITS.facialScan.maxSeconds);
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(PERSONA_UPLOAD_LIMITS.passiveFacialScan.maxSeconds);
   const [error, setError] = useState<string | null>(null);
 
   function clearTimers() {
@@ -70,7 +57,7 @@ export function FacialScanTile({
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     recorderRef.current = null;
     stopCamera();
-    setSecondsRemaining(PERSONA_UPLOAD_LIMITS.facialScan.maxSeconds);
+    setSecondsRemaining(PERSONA_UPLOAD_LIMITS.passiveFacialScan.maxSeconds);
     setOpen(false);
   }
 
@@ -90,16 +77,10 @@ export function FacialScanTile({
 
   function finishScan() {
     const recorder = recorderRef.current;
-    const video = videoRef.current;
     if (finishingRef.current || !recorder || recorder.state !== "recording") return;
-    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
-      setError("Camera is still starting. Please try again in a moment.");
-      return;
-    }
     finishingRef.current = true;
     shouldSaveRef.current = true;
     clearTimers();
-    snapshotRef.current = captureSnapshot(video);
     setScanning(false);
     setSecondsRemaining(0);
     recorder.stop();
@@ -116,7 +97,6 @@ export function FacialScanTile({
       const recorder = format.mimeType ? new MediaRecorder(stream, { mimeType: format.mimeType }) : new MediaRecorder(stream);
       streamRef.current = stream;
       chunksRef.current = [];
-      snapshotRef.current = null;
       shouldSaveRef.current = false;
       finishingRef.current = false;
       recorder.ondataavailable = (event) => {
@@ -127,7 +107,6 @@ export function FacialScanTile({
         shouldSaveRef.current = false;
         clearTimers();
         recorderRef.current = null;
-        const snapshot = await snapshotRef.current;
         const motionType = recorder.mimeType || format.mimeType || "video/webm";
         const motionBlob = new Blob(chunksRef.current, { type: motionType });
         stopCamera();
@@ -135,60 +114,41 @@ export function FacialScanTile({
           finishingRef.current = false;
           return;
         }
-        if (!snapshot || motionBlob.size === 0) {
+        if (motionBlob.size === 0) {
           finishingRef.current = false;
-          setError("Couldn't save the facial motion scan. Please try again.");
+          setError("Couldn't save the passive facial scan. Please try again.");
           return;
         }
 
         setSaving(true);
-        const stamp = Date.now();
-        // The image provides a stable face reference; the paired motion clip
-        // is what the avatar trainer uses for natural idle motion and speech.
-        const scan = new File([snapshot], `facial-scan-${stamp}.jpg`, { type: "image/jpeg" });
-        const scanResult = await uploadPersonaAsset(
-          personaId,
-          scan,
-          "facial_scan",
-          PERSONA_ASSET_SOURCES.guidedFacialScan,
-          true,
-          true,
-        );
-        if (!scanResult.ok) {
-          setSaving(false);
-          finishingRef.current = false;
-          setError(scanResult.error);
-          return;
-        }
-
         const extension = motionType.startsWith("video/mp4") ? "mp4" : "webm";
-        const motion = new File([motionBlob], `facial-motion-${stamp}.${extension}`, { type: motionType });
-        const motionResult = await uploadPersonaAsset(
+        const motion = new File([motionBlob], `passive-facial-scan-${Date.now()}.${extension}`, { type: motionType });
+        const result = await uploadPersonaAsset(
           personaId,
           motion,
           "video",
-          PERSONA_ASSET_SOURCES.guidedFacialScan,
+          PERSONA_ASSET_SOURCES.passiveFacialScan,
           true,
           deferTraining,
         );
         setSaving(false);
         finishingRef.current = false;
-        if (motionResult.ok) {
+        if (result.ok) {
           onUploaded?.();
           setOpen(false);
-          setSecondsRemaining(PERSONA_UPLOAD_LIMITS.facialScan.maxSeconds);
+          setSecondsRemaining(PERSONA_UPLOAD_LIMITS.passiveFacialScan.maxSeconds);
         } else {
-          setError(motionResult.error);
+          setError(result.error);
         }
       };
       recorder.start(250);
       recorderRef.current = recorder;
       const startedAt = Date.now();
-      setSecondsRemaining(PERSONA_UPLOAD_LIMITS.facialScan.maxSeconds);
+      setSecondsRemaining(PERSONA_UPLOAD_LIMITS.passiveFacialScan.maxSeconds);
       intervalRef.current = window.setInterval(() => {
-        setSecondsRemaining(Math.max(0, PERSONA_UPLOAD_LIMITS.facialScan.maxSeconds - Math.floor((Date.now() - startedAt) / 1_000)));
+        setSecondsRemaining(Math.max(0, PERSONA_UPLOAD_LIMITS.passiveFacialScan.maxSeconds - Math.floor((Date.now() - startedAt) / 1_000)));
       }, 250);
-      timerRef.current = window.setTimeout(finishScan, PERSONA_UPLOAD_LIMITS.facialScan.maxSeconds * 1_000);
+      timerRef.current = window.setTimeout(finishScan, PERSONA_UPLOAD_LIMITS.passiveFacialScan.maxSeconds * 1_000);
       setScanning(true);
     } catch {
       stopCamera();
@@ -199,28 +159,27 @@ export function FacialScanTile({
   return (
     <>
       <UploadTileShell
-        label="Guided facial scan"
-        description="One 40-second guided scan per persona — re-scanning replaces it"
+        label="Passive facial scan"
+        description="One 20-second natural-motion scan per persona — re-scanning replaces it"
         locked={locked}
         onLockedClick={onLockedClick}
       >
         <Button variant="secondary" className="w-full" onClick={() => { setError(null); setOpen(true); }}>
-          Start guided scan
+          Start passive scan
         </Button>
         {error && <p role="alert" className="font-text text-caption text-red-500">{error}</p>}
       </UploadTileShell>
 
       <Modal open={open} onClose={cancelScan} maxWidthClassName="max-w-[38rem]" className="max-h-[calc(100dvh-3rem)] overflow-y-auto">
-        <h2 className="font-display text-tagline text-ink">Guided scan for {personaName}</h2>
+        <h2 className="font-display text-tagline text-ink">Passive facial scan</h2>
         <p className="mt-xs font-text text-caption text-ink-muted-80">
-          {scanning ? `Scanning — ${secondsRemaining}s remaining` : "Start when you are ready. It saves a face reference and a motion clip when you stop or when time runs out."}
+          {scanning
+            ? `Scanning natural movement — ${secondsRemaining}s remaining`
+            : "Look toward the camera and stay relaxed. Blink, breathe, and make small natural movements without speaking."}
         </p>
-        <div className="mt-lg border-y border-hairline py-lg">
-          <RecordingConsent personaName={personaName} />
-        </div>
-        {scanning && <video ref={videoRef} autoPlay muted playsInline className="mt-lg h-56 w-full rounded-md bg-surface-black object-cover" />}
+        {scanning && <video ref={videoRef} autoPlay muted playsInline className="mt-lg h-64 w-full rounded-md bg-surface-black object-cover" />}
         <Button variant="secondary" className="mt-lg w-full" onClick={scanning ? finishScan : startScan} disabled={saving}>
-          {saving ? "Saving…" : scanning ? `Stop & save (${secondsRemaining}s)` : "Start scan"}
+          {saving ? "Saving…" : scanning ? `Stop & save (${secondsRemaining}s)` : "Start passive scan"}
         </Button>
         {error && <p role="alert" className="mt-sm font-text text-caption text-red-500">{error}</p>}
       </Modal>

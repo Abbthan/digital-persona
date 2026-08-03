@@ -5,6 +5,7 @@ import { Button, Modal } from "@/front_end/components/ui";
 import { useLocale } from "@/front_end/state/locale-context";
 import type { DeleteAssetResponseBody } from "@/back_end/api/personas/[id]/assets/[assetId]/route";
 import type { ListAssetsResponseBody, PersonaAssetDTO } from "@/back_end/api/personas/[id]/assets/route";
+import { PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 
 type SortOrder = "date" | "name";
 type Confirmation = { assetIds: string[] } | null;
@@ -21,7 +22,13 @@ function formatFileSize(size: number | null) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatAssetType(type: PersonaAssetDTO["type"], locale: "en" | "zh") {
+function formatAssetType(asset: PersonaAssetDTO, locale: "en" | "zh") {
+  if (asset.type === "video" && asset.source === PERSONA_ASSET_SOURCES.guidedFacialScan) {
+    return locale === "zh" ? "引导式面部扫描" : "guided facial scan";
+  }
+  if (asset.type === "video" && asset.source === PERSONA_ASSET_SOURCES.passiveFacialScan) {
+    return locale === "zh" ? "自然动态面部扫描" : "passive facial scan";
+  }
   if (locale === "zh") {
     const labels: Record<PersonaAssetDTO["type"], string> = {
       image: "照片",
@@ -31,9 +38,9 @@ function formatAssetType(type: PersonaAssetDTO["type"], locale: "en" | "zh") {
       facial_scan: "面部扫描",
       social_link: "社交媒体链接",
     };
-    return labels[type];
+    return labels[asset.type];
   }
-  return type.replaceAll("_", " ");
+  return asset.type.replaceAll("_", " ");
 }
 
 // Used by both the initial upload wizard and later persona management, so the
@@ -173,7 +180,7 @@ export function PersonaAssetList({ personaId, refreshToken = 0, onChanged }: Per
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-text text-caption-strong text-ink">{asset.name}</p>
                       <p className="mt-xxs font-text text-fine-print text-ink-muted-48">
-                        {formatAssetType(asset.type, locale)} · {formatFileSize(asset.size)} · {new Date(asset.createdAt).toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US")}
+                        {formatAssetType(asset, locale)} · {formatFileSize(asset.size)} · {new Date(asset.createdAt).toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US")}
                       </p>
                     </div>
                     {selectionMode ? (
