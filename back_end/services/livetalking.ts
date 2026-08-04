@@ -256,6 +256,13 @@ export async function submitAvatarTrainingJob(
           idle_file_name: idleSourceAsset.fileName,
         } : {}),
       }),
+      // This only enqueues the job and returns a task id — it must not hang
+      // indefinitely on a slow/unresponsive GPU box. Without this, a stuck
+      // fetch here never throws, so the caller's try/catch never runs and a
+      // persona can be stranded at status "processing" forever (see the
+      // matching note on saveVoiceReference below, which is the incident
+      // that surfaced this gap).
+      signal: AbortSignal.timeout(15_000),
     });
     const body = (await response.json()) as { code: number; msg: string; data?: { task_id: string } };
     if (!response.ok || body.code !== 0 || !body.data) {
@@ -283,6 +290,7 @@ export async function getAvatarTrainingTask(personaId: string, taskId: string): 
     const response = await fetch(`${serverUrl}/api/avatar/task/${taskId}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
     });
     const body = (await response.json()) as { code: number; data?: AvatarTrainingTask };
     if (!response.ok || body.code !== 0 || !body.data) {
@@ -321,6 +329,14 @@ export async function saveVoiceReference(
         source_url: privatePersonaMediaUrl(personaId, sourceAsset.id),
         file_name: sourceAsset.fileName,
       }),
+      // This runs inside startPersonaTraining's `after()` background
+      // callback. Without a bound, a GPU box that accepts the connection
+      // but never responds leaves this fetch permanently pending — the
+      // surrounding try/catch only guards against thrown errors, not an
+      // unsettled promise — so the caller's finally-style cleanup never
+      // runs and the persona is stranded at status "processing" forever.
+      // This happened in production; see docs/gpu-liveportrait-integration.md.
+      signal: AbortSignal.timeout(45_000),
     });
     const body = (await response.json()) as { code: number; data?: { path: string; text: string } };
     if (!response.ok || body.code !== 0 || !body.data) return null;
@@ -415,6 +431,7 @@ export async function checkFaceMatch(
         candidate_url: privatePersonaMediaUrl(personaId, candidateAsset.id),
         candidate_name: candidateAsset.fileName,
       }),
+      signal: AbortSignal.timeout(20_000),
     });
     const body = (await response.json()) as { code: number; data?: { match: boolean; distance?: number } };
     if (!response.ok || body.code !== 0 || !body.data) return null;
@@ -443,6 +460,7 @@ export async function transcribeVoiceClip(personaId: string, audioBlob: File): P
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
+      signal: AbortSignal.timeout(15_000),
     });
     const body = (await response.json()) as { code: number; data?: { text: string } };
     if (!response.ok || body.code !== 0 || !body.data) return null;

@@ -57,7 +57,13 @@ export async function DELETE(
     // voice — only retrain when what was removed could have fed either one.
     // There's no partial "forget just this file" for either model, so this
     // is a full retrain from whatever's left (see startPersonaTraining).
-    if (persona.status === "active" && TRAINING_RELEVANT_ASSET_TYPES.includes(asset.type)) {
+    //
+    // Not gated on `status === "active"` — see the matching comment in
+    // POST /api/personas/[id]/assets for why a still-"processing" persona
+    // must still accept a retrigger (otherwise a delete that lands while an
+    // earlier incomplete-asset-set attempt is stuck can be silently
+    // dropped).
+    if (persona.status !== "draft" && TRAINING_RELEVANT_ASSET_TYPES.includes(asset.type)) {
       await db.persona.update({
         where: { id: personaId },
         data: {

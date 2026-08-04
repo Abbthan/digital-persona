@@ -291,8 +291,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // voice — only retrain for the asset types that actually feed them, and
     // only once the persona already exists (the creation wizard trains once
     // at the end via /finish instead, since intermediate uploads there
-    // aren't a "submit" yet).
-    if (!deferTraining && persona.status === "active" && TRAINING_RELEVANT_ASSET_TYPES.includes(type)) {
+    // aren't a "submit" yet — gated by `status !== "draft"` rather than
+    // `deferTraining` alone).
+    //
+    // Deliberately NOT gated on `status === "active"`: a still-"processing"
+    // persona must still accept a retrigger. Re-recording facial scans one
+    // at a time (guided, then passive, possibly minutes apart) means the
+    // first upload can land before all three required assets exist —
+    // startPersonaTraining() then has nothing to submit and the persona
+    // stays "processing" until either the 3-minute starting-sentinel
+    // timeout or a background job resolves it. If that gate required
+    // "active", the *next* upload (the one that actually completes the set)
+    // would be silently dropped instead of retriggering — which is exactly
+    // what happened to a real persona. startPersonaTraining() always
+    // recomputes from every current asset, so re-firing it on an in-flight
+    // "processing" persona is safe (worst case, a redundant GPU resubmit
+    // that the single-worker task queue just serializes) and is the only
+    // way a later completing upload is guaranteed to register.
+    if (!deferTraining && persona.status !== "draft" && TRAINING_RELEVANT_ASSET_TYPES.includes(type)) {
       await db.persona.update({
         where: { id: personaId },
         data: {
