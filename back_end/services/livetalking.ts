@@ -335,11 +335,18 @@ export function voiceRefPath(personaId: string): string {
  * This is generated server-side from the already-authorised avatar id; it is
  * never accepted from the browser as an arbitrary GPU filesystem path.
  */
+// idle_imgs is a LivePortrait-enhanced loop (natural blinking/micro-motion)
+// baked alongside the avatar when training runs the LivePortrait step; not
+// every avatar has one (older avatars, or a training run where the
+// enhancement step failed — it degrades gracefully, never blocks training).
+// LiveTalking's own loader already no-ops a missing/empty imgpath rather
+// than erroring, falling back to its normal no-custom-action behavior, so
+// it's safe to always point here rather than track per-avatar readiness.
 export function personaIdleActionConfig(avatarId: string): string {
   return JSON.stringify([
     {
       audiotype: 1,
-      imgpath: `data/avatars/${avatarId}/full_imgs`,
+      imgpath: `data/avatars/${avatarId}/idle_imgs`,
     },
   ]);
 }

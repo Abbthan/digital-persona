@@ -1,0 +1,117 @@
+--- a/server/task_manager.py
++++ b/server/task_manager.py
+@@ -3,11 +3,75 @@
+ import threading
+ import json
+ import os
++import subprocess
+ import requests
+ import cv2
+ from concurrent.futures import ThreadPoolExecutor
+ from utils.logger import logger
+
++# digital_persona: LivePortrait enhancement (idle-loop naturalism — see
++# scripts/gpu-server/patches/0007-liveportrait-idle-loop-safe-fallback.patch and 0008-liveportrait-idle-loop-task-integration.patch). Runs as a
++# separate subprocess in its own venv rather than an in-process import: it
++# has its own dependency set (onnxruntime-gpu, gradio, tyro, ...) that
++# conflicts with this process's own torch/CUDA install if merged, the same
++# isolation pattern already used for CosyVoice as a standalone service.
++# Failure here degrades gracefully — it only ever skips creating a nicer
++# idle loop, never fails the avatar-training task itself, since MuseTalk's
++# own bake (the feature this sits in front of) works correctly without it.
++LIVEPORTRAIT_PYTHON = "/data/echodigitalpersona/LivePortrait-experiment/.venv/bin/python"
++LIVEPORTRAIT_SCRIPT = "/data/echodigitalpersona/LivePortrait-experiment/enhance_and_extract.py"
++LIVEPORTRAIT_GPU_ID = "2"  # kept off GPU 0/1 (LiveTalking/CosyVoice) — see handoff docs
++LIVEPORTRAIT_TIMEOUT_SECONDS = 300
++
++
++def _run_liveportrait_idle_enhancement(video_path: str, avatar_id: str, save_path: str) -> bool:
++    """Best-effort: produce data/avatars/<id>/idle_imgs/ via LivePortrait
++    self-reenactment restricted to the eyes/expression region, for a livelier
++    silence-state loop than the flat MuseTalk source. Returns True on
++    success; any failure is logged and treated as "no enhancement this
++    time," not a task failure.
++    """
++    if not os.path.exists(LIVEPORTRAIT_PYTHON) or not os.path.exists(LIVEPORTRAIT_SCRIPT):
++        logger.warning("LivePortrait environment not found; skipping idle-loop enhancement")
++        return False
++
++    idle_imgs_path = os.path.join(save_path, avatar_id, "idle_imgs")
++    env = dict(os.environ)
++    env["CUDA_VISIBLE_DEVICES"] = LIVEPORTRAIT_GPU_ID
++
++    try:
++        result = subprocess.run(
++            [
++                LIVEPORTRAIT_PYTHON,
++                LIVEPORTRAIT_SCRIPT,
++                "--source", video_path,
++                "--output-dir", idle_imgs_path,
++                "--animation-region", "eyes",
++                "--driving-multiplier", "0.8",
++            ],
++            env=env,
++            capture_output=True,
++            text=True,
++            timeout=LIVEPORTRAIT_TIMEOUT_SECONDS,
++        )
++    except subprocess.TimeoutExpired:
++        logger.error(f"LivePortrait idle-loop enhancement timed out for avatar {avatar_id}")
++        return False
++    except Exception as e:
++        logger.error(f"LivePortrait idle-loop enhancement failed to start for avatar {avatar_id}: {e}")
++        return False
++
++    if result.returncode != 0:
++        logger.error(
++            f"LivePortrait idle-loop enhancement failed for avatar {avatar_id} "
++            f"(exit {result.returncode}): {result.stderr[-2000:]}"
++        )
++        return False
++
++    logger.info(f"LivePortrait idle-loop enhancement succeeded for avatar {avatar_id}: {result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ''}")
++    return True
++
++
+ class AvatarTask:
+     def __init__(self, task_id, model_type, avatar_id, params, notify_url=None):
+         self.task_id = task_id
+@@ -83,10 +147,25 @@
+         logger.info(f"Starting task {task_id} for model {task.model_type}, avatar {task.avatar_id}")
+
+         try:
+-            def progress_callback(p):
+-                task.progress = p
+-
+             if task.model_type == "musetalk":
++                # LivePortrait's idle-loop pass runs first and is given its
++                # own slice of the progress bar (0-15%); generate_avatar's
++                # own checkpoints are then remapped from its native 0-100
++                # range into the remaining 15-100 so client-side progress
++                # still ends at a real 100 either way.
++                task.progress = 2
++                self._notify(task)
++                _run_liveportrait_idle_enhancement(
++                    video_path=task.params['video_path'],
++                    avatar_id=task.avatar_id,
++                    save_path=task.params.get('save_path', './data/avatars'),
++                )
++                task.progress = 15
++                self._notify(task)
++
++                def progress_callback(p):
++                    task.progress = 15 + int(p * 0.85)
++
+                 from avatars.musetalk.genavatar import generate_avatar
+                 generate_avatar(
+                     video_path=task.params['video_path'],
+@@ -99,6 +178,9 @@
+                     progress_callback=progress_callback
+                 )
+             elif task.model_type == "wav2lip":
++                def progress_callback(p):
++                    task.progress = p
++
+                 from avatars.wav2lip.genavatar import generate_avatar
+                 generate_avatar(
+                     video_path=task.params['video_path'],

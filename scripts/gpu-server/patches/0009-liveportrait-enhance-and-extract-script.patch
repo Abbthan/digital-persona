@@ -1,0 +1,125 @@
+New file, not a diff against an existing upstream file — LivePortrait-experiment/
+is our own separate clone (see docs/gpu-liveportrait-integration.md), so this
+is recorded the same way the rest of this directory records reproducible
+GPU-server changes, applied with `patch -p1` from LivePortrait-experiment/.
+
+--- /dev/null
++++ b/enhance_and_extract.py
+@@ -0,0 +1,117 @@
++"""Runs inside LivePortrait-experiment's own venv (not LiveTalking's) — see
++docs/gpu-liveportrait-integration.md for why this is a separate process.
++
++Takes a single-person source video (a persona's passive or guided facial
++scan, already ffmpeg-canonicalized by LiveTalking) and produces a
++self-reenacted, motion-stabilized version of it via LivePortrait, then
++extracts that output's frames as a plain zero-padded PNG sequence — the
++same format MuseTalk's own genavatar.py writes to full_imgs/, so both the
++custom_img_cycle idle-loop path (Phase 1) and generate_avatar()'s own frame
++extraction (Phase 2) can consume it without any format-specific handling.
++"""
++
++import argparse
++import os
++import shutil
++import subprocess
++import sys
++
++import cv2
++
++sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
++
++from src.config.argument_config import ArgumentConfig
++from src.config.inference_config import InferenceConfig
++from src.config.crop_config import CropConfig
++from src.live_portrait_pipeline import LivePortraitPipeline
++
++
++def video2imgs(vid_path: str, save_path: str) -> int:
++    cap = cv2.VideoCapture(vid_path)
++    if not cap.isOpened():
++        raise ValueError(f"Could not open enhanced video: {vid_path}")
++    count = 0
++    while True:
++        ret, frame = cap.read()
++        if not ret:
++            break
++        cv2.imwrite(f"{save_path}/{count:08d}.png", frame)
++        count += 1
++    cap.release()
++    if count == 0:
++        raise ValueError(f"Enhanced video contains no decodable frames: {vid_path}")
++    return count
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--source", required=True, help="Path to the canonicalized source scan video")
++    parser.add_argument("--output-dir", required=True, help="Directory to write the extracted PNG frame sequence into")
++    parser.add_argument(
++        "--driving-multiplier",
++        type=float,
++        default=1.0,
++        help="Expression intensity multiplier — kept modest for the idle loop so blinking/micro-motion doesn't overshoot into exaggerated expression",
++    )
++    parser.add_argument(
++        "--animation-region",
++        default="all",
++        choices=["exp", "pose", "lip", "eyes", "all"],
++        help="Which region LivePortrait is allowed to touch; Phase 1 (idle) restricts this, Phase 2 (talking) uses 'all'",
++    )
++    args = parser.parse_args()
++
++    os.makedirs(args.output_dir, exist_ok=True)
++    work_dir = os.path.join(os.path.dirname(args.output_dir), "_liveportrait_tmp")
++    os.makedirs(work_dir, exist_ok=True)
++
++    # Self-driven mode: source is a video, driving is a static image (any
++    # image works — its own expression is irrelevant, passing a video here
++    # instead would switch this into cross-reenactment). This makes
++    # LivePortrait treat the source video's own per-frame motion as its own
++    # driving signal, running it through motion extraction + Kalman
++    # smoothing (driving_smooth_observation_variance) rather than copying
++    # someone else's performance onto our persona's face.
++    dummy_driving_image = os.path.join(
++        os.path.dirname(os.path.abspath(__file__)), "assets", "examples", "source", "s0.jpg"
++    )
++
++    args_cfg = ArgumentConfig(
++        source=args.source,
++        driving=dummy_driving_image,
++        output_dir=work_dir,
++        driving_option="expression-friendly",
++        driving_multiplier=args.driving_multiplier,
++        animation_region=args.animation_region,
++        flag_source_video_eye_retargeting=True,
++        flag_stitching=True,
++        flag_relative_motion=True,
++        flag_pasteback=True,
++        flag_do_crop=True,
++    )
++
++    inference_cfg = InferenceConfig(**{k: v for k, v in vars(args_cfg).items() if hasattr(InferenceConfig, k)})
++    crop_cfg = CropConfig(**{k: v for k, v in vars(args_cfg).items() if hasattr(CropConfig, k)})
++
++    pipeline = LivePortraitPipeline(inference_cfg=inference_cfg, crop_cfg=crop_cfg)
++    pipeline.execute(args_cfg)
++
++    # execute() names its output '<source_stem>--<driving_stem>.mp4' inside
++    # output_dir and doesn't return the path directly, so locate it rather
++    # than guess the exact filename.
++    produced = [
++        f for f in os.listdir(work_dir)
++        if f.endswith(".mp4") and not f.endswith("_concat.mp4") and "with_audio" not in f
++    ]
++    if not produced:
++        raise RuntimeError(f"LivePortrait produced no output video in {work_dir}")
++    enhanced_video = os.path.join(work_dir, sorted(produced)[0])
++
++    frame_count = video2imgs(enhanced_video, args.output_dir)
++    print(f"OK: {frame_count} frames written to {args.output_dir}")
++
++    shutil.rmtree(work_dir, ignore_errors=True)
++
++
++if __name__ == "__main__":
++    main()

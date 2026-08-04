@@ -1,0 +1,21 @@
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -212,6 +212,18 @@
+             logger.info(item)
+             input_img_list = glob.glob(os.path.join(item['imgpath'], '*.[jpJP][pnPN]*[gG]'))
+             input_img_list = sorted(input_img_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
++            if not input_img_list:
++                # digital_persona: imgpath can legitimately not exist yet
++                # (e.g. an optional LivePortrait-enhanced idle loop that
++                # wasn't generated for this avatar). glob() on a missing
++                # directory silently returns [], and registering an empty
++                # cycle here crashes mirror_index() with a modulo-by-zero
++                # the first time silence is reached. Leaving this audiotype
++                # unregistered instead falls through to the existing
++                # no-custom-action behavior, same as an avatar that never
++                # had custom actions configured at all.
++                logger.warning(f"customopt imgpath has no images, skipping: {item['imgpath']}")
++                continue
+             self.custom_img_cycle[item['audiotype']] = read_imgs(input_img_list)
+             if item.get('audiopath'):
+                 self.custom_audio_cycle[item['audiotype']], sample_rate = sf.read(item['audiopath'], dtype='float32')
