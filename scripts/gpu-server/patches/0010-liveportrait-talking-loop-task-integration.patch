@@ -1,0 +1,186 @@
+--- a/server/task_manager.py
++++ b/server/task_manager.py
+@@ -9,33 +9,40 @@
+ from concurrent.futures import ThreadPoolExecutor
+ from utils.logger import logger
+
+-# digital_persona: LivePortrait enhancement (idle-loop naturalism — see
+-# scripts/gpu-server/patches/0007-liveportrait-idle-loop-safe-fallback.patch and 0008-liveportrait-idle-loop-task-integration.patch). Runs as a
+-# separate subprocess in its own venv rather than an in-process import: it
+-# has its own dependency set (onnxruntime-gpu, gradio, tyro, ...) that
+-# conflicts with this process's own torch/CUDA install if merged, the same
+-# isolation pattern already used for CosyVoice as a standalone service.
+-# Failure here degrades gracefully — it only ever skips creating a nicer
+-# idle loop, never fails the avatar-training task itself, since MuseTalk's
+-# own bake (the feature this sits in front of) works correctly without it.
++# digital_persona: LivePortrait enhancement (see
++# docs/gpu-liveportrait-integration.md and
++# scripts/gpu-server/patches/0007-liveportrait-idle-loop-safe-fallback.patch,
++# 0008-liveportrait-idle-loop-task-integration.patch,
++# 0010-liveportrait-talking-loop-task-integration.patch). Runs as a separate
++# subprocess in its own venv rather than an in-process import: it has its
++# own dependency set (onnxruntime-gpu, gradio, tyro, ...) that conflicts
++# with this process's own torch/CUDA install if merged, the same isolation
++# pattern already used for CosyVoice as a standalone service. Failure here
++# always degrades gracefully — it only ever skips an enhancement step, never
++# fails the avatar-training task itself, since MuseTalk's own bake (the
++# feature this sits in front of) works correctly without it either way.
+ LIVEPORTRAIT_PYTHON = "/data/echodigitalpersona/LivePortrait-experiment/.venv/bin/python"
+ LIVEPORTRAIT_SCRIPT = "/data/echodigitalpersona/LivePortrait-experiment/enhance_and_extract.py"
+ LIVEPORTRAIT_GPU_ID = "2"  # kept off GPU 0/1 (LiveTalking/CosyVoice) — see handoff docs
+ LIVEPORTRAIT_TIMEOUT_SECONDS = 300
+
+
+-def _run_liveportrait_idle_enhancement(video_path: str, avatar_id: str, save_path: str) -> bool:
+-    """Best-effort: produce data/avatars/<id>/idle_imgs/ via LivePortrait
+-    self-reenactment restricted to the eyes/expression region, for a livelier
+-    silence-state loop than the flat MuseTalk source. Returns True on
+-    success; any failure is logged and treated as "no enhancement this
+-    time," not a task failure.
++def _run_liveportrait_enhancement(
++    video_path: str,
++    output_dir: str,
++    animation_region: str,
++    driving_multiplier: float,
++    label: str,
++) -> bool:
++    """Best-effort: run LivePortrait self-reenactment on video_path, writing
++    a PNG frame sequence to output_dir. Returns True on success; any
++    failure is logged and treated as "no enhancement this time," never a
++    task failure — callers fall back to their pre-enhancement source.
+     """
+     if not os.path.exists(LIVEPORTRAIT_PYTHON) or not os.path.exists(LIVEPORTRAIT_SCRIPT):
+-        logger.warning("LivePortrait environment not found; skipping idle-loop enhancement")
++        logger.warning(f"LivePortrait environment not found; skipping {label} enhancement")
+         return False
+
+-    idle_imgs_path = os.path.join(save_path, avatar_id, "idle_imgs")
+     env = dict(os.environ)
+     env["CUDA_VISIBLE_DEVICES"] = LIVEPORTRAIT_GPU_ID
+
+@@ -45,9 +52,9 @@
+                 LIVEPORTRAIT_PYTHON,
+                 LIVEPORTRAIT_SCRIPT,
+                 "--source", video_path,
+-                "--output-dir", idle_imgs_path,
+-                "--animation-region", "eyes",
+-                "--driving-multiplier", "0.8",
++                "--output-dir", output_dir,
++                "--animation-region", animation_region,
++                "--driving-multiplier", str(driving_multiplier),
+             ],
+             env=env,
+             capture_output=True,
+@@ -55,20 +62,20 @@
+             timeout=LIVEPORTRAIT_TIMEOUT_SECONDS,
+         )
+     except subprocess.TimeoutExpired:
+-        logger.error(f"LivePortrait idle-loop enhancement timed out for avatar {avatar_id}")
++        logger.error(f"LivePortrait {label} enhancement timed out for {video_path}")
+         return False
+     except Exception as e:
+-        logger.error(f"LivePortrait idle-loop enhancement failed to start for avatar {avatar_id}: {e}")
++        logger.error(f"LivePortrait {label} enhancement failed to start for {video_path}: {e}")
+         return False
+
+     if result.returncode != 0:
+         logger.error(
+-            f"LivePortrait idle-loop enhancement failed for avatar {avatar_id} "
++            f"LivePortrait {label} enhancement failed for {video_path} "
+             f"(exit {result.returncode}): {result.stderr[-2000:]}"
+         )
+         return False
+
+-    logger.info(f"LivePortrait idle-loop enhancement succeeded for avatar {avatar_id}: {result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ''}")
++    logger.info(f"LivePortrait {label} enhancement succeeded for {video_path}: {result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ''}")
+     return True
+
+
+@@ -148,35 +155,76 @@
+
+         try:
+             if task.model_type == "musetalk":
+-                # LivePortrait's idle-loop pass runs first and is given its
+-                # own slice of the progress bar (0-15%); generate_avatar's
+-                # own checkpoints are then remapped from its native 0-100
+-                # range into the remaining 15-100 so client-side progress
+-                # still ends at a real 100 either way.
++                # Two LivePortrait passes share the first 25% of the
++                # progress bar; generate_avatar's own native 0-100
++                # checkpoints are then remapped into the remaining 25-100
++                # so client-side progress still ends at a real 100 either
++                # way, regardless of whether either pass actually ran.
++                save_path = task.params.get('save_path', './data/avatars')
++
++                # Idle loop: the passive scan (falls back to the main
++                # video_path if no separate idle source was given — the
++                # pre-Phase-2 behavior). Restricted to the eyes/expression
++                # region and a lower multiplier so blinking/micro-motion
++                # doesn't overshoot into exaggerated expression while idle.
+                 task.progress = 2
+                 self._notify(task)
+-                _run_liveportrait_idle_enhancement(
++                idle_source = task.params.get('idle_video_path') or task.params['video_path']
++                idle_imgs_path = os.path.join(save_path, task.avatar_id, "idle_imgs")
++                _run_liveportrait_enhancement(
++                    video_path=idle_source,
++                    output_dir=idle_imgs_path,
++                    animation_region="eyes",
++                    driving_multiplier=0.8,
++                    label="idle-loop",
++                )
++                task.progress = 12
++                self._notify(task)
++
++                # Talking loop: the guided scan (task.params['video_path']
++                # itself, per selectAvatarSourceAsset's Phase 2 change) gets
++                # the full-region pass and, on success, *becomes* the
++                # source generate_avatar() bakes from — genavatar.py's
++                # generate_avatar() already accepts a directory of PNG
++                # frames as video_path (not just a video file), so no
++                # re-encoding back to video is needed. On failure, falls
++                # back to the original (canonicalized but unenhanced) scan,
++                # exactly like this avatar always baked before this feature
++                # existed — never a task failure.
++                talking_imgs_path = os.path.join(save_path, task.avatar_id, "_liveportrait_talking_imgs")
++                talking_enhanced = _run_liveportrait_enhancement(
+                     video_path=task.params['video_path'],
+-                    avatar_id=task.avatar_id,
+-                    save_path=task.params.get('save_path', './data/avatars'),
++                    output_dir=talking_imgs_path,
++                    animation_region="all",
++                    driving_multiplier=1.0,
++                    label="talking-loop",
+                 )
+-                task.progress = 15
++                if talking_enhanced:
++                    task.params['video_path'] = talking_imgs_path
++                task.progress = 25
+                 self._notify(task)
+
+                 def progress_callback(p):
+-                    task.progress = 15 + int(p * 0.85)
++                    task.progress = 25 + int(p * 0.75)
+
+                 from avatars.musetalk.genavatar import generate_avatar
+                 generate_avatar(
+                     video_path=task.params['video_path'],
+                     avatar_id=task.avatar_id,
+-                    save_path=task.params.get('save_path', './data/avatars'),
++                    save_path=save_path,
+                     bbox_shift=task.params.get('bbox_shift', 0),
+                     extra_margin=task.params.get('extra_margin', 10),
+                     parsing_mode=task.params.get('parsing_mode', 'jaw'),
+                     version=task.params.get('version', 'v15'),
+                     progress_callback=progress_callback
+                 )
++                # generate_avatar() has already copied these frames into
++                # full_imgs/ by this point (it accepts a directory as
++                # video_path and copies from it directly) — this is now a
++                # redundant intermediate copy, not the avatar's live source.
++                if talking_enhanced:
++                    import shutil
++                    shutil.rmtree(talking_imgs_path, ignore_errors=True)
+             elif task.model_type == "wav2lip":
+                 def progress_callback(p):
+                     task.progress = p

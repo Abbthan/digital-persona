@@ -1,0 +1,66 @@
+--- a/server/avatar_routes.py
++++ b/server/avatar_routes.py
+@@ -125,10 +125,24 @@
+             video_path = os.path.join(data_path, video_path)
+         video_path = _canonical_avatar_source(video_path)
+
++        # digital_persona: optional second local source for LivePortrait's
++        # idle-loop pass -- see docs/gpu-liveportrait-integration.md. This
++        # multipart endpoint doesn't share _enqueue_avatar_task's
++        # implementation (pre-existing duplication, not introduced here),
++        # so the same idle_video_path handling is mirrored here for the
++        # direct-upload/local-path path to stay consistent with the
++        # URL-based endpoint.
++        idle_video_path = params.get('idle_video_path')
++        if idle_video_path and not os.path.isabs(idle_video_path):
++            idle_video_path = os.path.join(data_path, idle_video_path)
++        if idle_video_path:
++            idle_video_path = _canonical_avatar_source(idle_video_path)
++
+         save_path = data_path
+
+         task_params = {
+             "video_path": video_path,
++            "idle_video_path": idle_video_path or video_path,
+             "save_path": save_path,
+             "img_size": int(params.get('img_size', 256)),
+             "nosmooth": params.get('nosmooth', 'false').lower() == 'true' if isinstance(params.get('nosmooth'), str) else params.get('nosmooth', False),
+@@ -370,8 +384,20 @@
+         video_path = os.path.join(data_path, video_path)
+     video_path = _canonical_avatar_source(video_path)
+
++    # digital_persona: optional second source (the persona's passive scan)
++    # for LivePortrait's separate idle-loop enhancement pass -- see
++    # docs/gpu-liveportrait-integration.md. Falls back to the main
++    # video_path itself if not given, matching the original single-asset
++    # behavior this replaced.
++    idle_video_path = params.get("idle_video_path")
++    if idle_video_path and not os.path.isabs(idle_video_path):
++        idle_video_path = os.path.join(data_path, idle_video_path)
++    if idle_video_path:
++        idle_video_path = _canonical_avatar_source(idle_video_path)
++
+     task_params = {
+         "video_path": video_path,
++        "idle_video_path": idle_video_path or video_path,
+         "save_path": data_path,
+         "img_size": int(params.get("img_size", 256)),
+         "nosmooth": params.get("nosmooth", "false").lower() == "true" if isinstance(params.get("nosmooth"), str) else params.get("nosmooth", False),
+@@ -405,10 +431,16 @@
+         params["video_path"] = await _download_private_media(
+             request, source_url, params.get("file_name", "source"), "avatar_source",
+         )
++        idle_source_url = params.get("idle_source_url", "")
++        if idle_source_url:
++            params["idle_video_path"] = await _download_private_media(
++                request, idle_source_url, params.get("idle_file_name", "idle_source"), "idle_source",
++            )
+         logger.info(
+-            "Avatar source downloaded avatar=%s source_extension=%s",
++            "Avatar source downloaded avatar=%s source_extension=%s has_idle_source=%s",
+             params.get("avatar_id", "unknown"),
+             os.path.splitext(params["video_path"])[1].lower() or ".bin",
++            bool(idle_source_url),
+         )
+         return _enqueue_avatar_task(params)
+     except Exception as error:

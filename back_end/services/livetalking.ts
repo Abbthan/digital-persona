@@ -225,6 +225,10 @@ export async function submitAvatarTrainingJob(
   personaId: string,
   avatarId: string,
   sourceAsset: { id: string; fileName: string },
+  // The passive scan, when given, becomes MuseTalk's separate idle-only
+  // loop (see docs/gpu-liveportrait-integration.md) rather than sourceAsset
+  // itself needing to double as both the main avatar and the idle loop.
+  idleSourceAsset?: { id: string; fileName: string },
 ): Promise<{ ok: true; taskId: string } | { ok: false; error: string }> {
   const serverUrl = liveTalkingServerUrl();
   const token = await systemToken(personaId);
@@ -236,6 +240,7 @@ export async function submitAvatarTrainingJob(
       avatarId,
       sourceAssetId: sourceAsset.id,
       sourceFileName: sourceAsset.fileName,
+      idleSourceAssetId: idleSourceAsset?.id ?? null,
     });
     const response = await fetch(`${serverUrl}/api/avatar/task-from-url`, {
       method: "POST",
@@ -246,6 +251,10 @@ export async function submitAvatarTrainingJob(
         version: "v15",
         source_url: privatePersonaMediaUrl(personaId, sourceAsset.id),
         file_name: sourceAsset.fileName,
+        ...(idleSourceAsset ? {
+          idle_source_url: privatePersonaMediaUrl(personaId, idleSourceAsset.id),
+          idle_file_name: idleSourceAsset.fileName,
+        } : {}),
       }),
     });
     const body = (await response.json()) as { code: number; msg: string; data?: { task_id: string } };

@@ -33,8 +33,14 @@ assert.equal(
 );
 assert.equal(
   selectAvatarSourceAsset([reference, guided, passive])?.id,
-  passive.id,
-  "the passive scan must be the LiveTalking motion source once both scans exist",
+  guided.id,
+  // Changed by the LivePortrait idle-loop work (docs/gpu-liveportrait-integration.md):
+  // the passive scan no longer needs to double as MuseTalk's only motion
+  // source now that it's baked separately as an idle-only loop
+  // (personaIdleActionConfig / data/avatars/<id>/idle_imgs). The guided
+  // scan's genuinely recorded talking motion is what shows during actual
+  // speech instead of a flat closed-mouth loop.
+  "the guided scan must be the primary avatar source once both scans exist",
 );
 
 console.info("persona two-scan training selection: PASS");

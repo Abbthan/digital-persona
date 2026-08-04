@@ -34,10 +34,16 @@ function originalName(asset: AssetRow): string {
 }
 
 /**
- * Live video is deliberately gated on two purpose-recorded inputs. The
- * guided scan supplies an explicit identity/consent reference; the passive
- * scan supplies the closed-mouth blinking, breathing, and posture motion
- * that LiveTalking loops while no speech is playing. Ordinary video uploads
+ * Live video is deliberately gated on two purpose-recorded inputs. Both are
+ * required as an explicit identity/consent reference and a real motion
+ * source, but they now feed two separate loops: the guided scan (LivePortrait-
+ * enhanced) becomes MuseTalk's primary baked avatar — its genuinely recorded
+ * talking motion is what shows during actual speech — while the passive
+ * scan's closed-mouth blinking/breathing loop is baked separately as the
+ * idle-only source LiveTalking switches to while no speech is playing (see
+ * personaIdleActionConfig / docs/gpu-liveportrait-integration.md). Before
+ * that idle loop existed, the passive scan had to double as both — this
+ * selection changed once it no longer needs to. Ordinary video uploads
  * remain available to RAG/media analysis, but cannot silently enable a live
  * likeness or replace either consented scan.
  */
@@ -50,7 +56,19 @@ export function selectAvatarSourceAsset(assets: AssetRow[]): AssetRow | null {
     asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.passiveFacialScan
   )) ?? null;
 
-  return facialReference && guidedScan && passiveScan ? passiveScan : null;
+  return facialReference && guidedScan && passiveScan ? guidedScan : null;
+}
+
+// The passive scan, gated by the same three-asset requirement as
+// selectAvatarSourceAsset (there is no standalone idle loop without a
+// primary avatar to pair it with). Kept as a separate lookup rather than
+// changing selectAvatarSourceAsset's return shape, since that function is
+// also exercised directly by scripts/verify-persona-training-selection.ts.
+function selectIdleSourceAsset(assets: AssetRow[]): AssetRow | null {
+  if (!selectAvatarSourceAsset(assets)) return null;
+  return assets.find((asset) => (
+    asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.passiveFacialScan
+  )) ?? null;
 }
 
 // The dedicated recorder produces exactly one known-good sample; uploaded
@@ -89,11 +107,13 @@ export async function startPersonaTraining(db: PrismaClient, personaId: string):
 
   const voiceAsset = selectVoiceRefAsset(assets);
   const avatarSelection = selectAvatarSourceAsset(assets);
+  const idleSelection = selectIdleSourceAsset(assets);
   console.info("[persona-training] source inventory", {
     personaId,
     assetTypes: assets.map((asset) => asset.type),
     voiceSourceAssetId: voiceAsset?.id ?? null,
     avatarSourceAssetId: avatarSelection?.id ?? null,
+    idleSourceAssetId: idleSelection?.id ?? null,
   });
 
   // Submit the avatar job before voice transcription. The GPU returns a task
@@ -109,10 +129,12 @@ export async function startPersonaTraining(db: PrismaClient, personaId: string):
       fileName: originalName(avatarSelection),
     });
     const avatarId = `persona_${personaId}`;
-    const result = await submitAvatarTrainingJob(personaId, avatarId, {
-      id: avatarSelection.id,
-      fileName: originalName(avatarSelection),
-    });
+    const result = await submitAvatarTrainingJob(
+      personaId,
+      avatarId,
+      { id: avatarSelection.id, fileName: originalName(avatarSelection) },
+      idleSelection ? { id: idleSelection.id, fileName: originalName(idleSelection) } : undefined,
+    );
     if (!result.ok) console.error("[persona-training] avatar submission failed", { personaId, error: result.error });
     await db.persona.update({
       where: { id: personaId },
