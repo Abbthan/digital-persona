@@ -1,0 +1,2 @@
+# No packages are installed into the existing LiveTalking/CosyVoice venvs.
+# The service uses LiveTalking's read-only torch/torchaudio/aiohttp runtime.
