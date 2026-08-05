@@ -329,7 +329,7 @@ export async function saveVoiceReference(
         source_url: privatePersonaMediaUrl(personaId, sourceAsset.id),
         file_name: sourceAsset.fileName,
       }),
-      // This runs inside startPersonaTraining's `after()` background
+      // This runs inside prepareVoiceReference's `after()` background
       // callback. Without a bound, a GPU box that accepts the connection
       // but never responds leaves this fetch permanently pending — the
       // surrounding try/catch only guards against thrown errors, not an

@@ -5,8 +5,9 @@ import { getDb } from "@/back_end/services/db";
 import {
   failPersonaTrainingStart,
   PERSONA_TRAINING_STARTING_TASK_ID,
+  prepareVoiceReference,
   resolvePersonaTrainingState,
-  startPersonaTraining,
+  submitAvatarTraining,
 } from "@/back_end/services/persona-training";
 
 export type FinishPersonaResponseBody =
@@ -54,19 +55,33 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
         avatarTrainingError: null,
       },
     });
+
+    // Avatar submission is awaited directly (bounded, ~15s worst case) so
+    // the persona never leaves this request still sitting on the "starting"
+    // sentinel with nothing that will ever resolve it — see the comment on
+    // submitAvatarTraining(). Voice-reference prep is the one part still
+    // safe to leave in the background: it doesn't gate live video readiness.
+    let started = false;
+    try {
+      console.info("[persona-training] initial training queued", { personaId });
+      ({ started } = await submitAvatarTraining(db, personaId));
+    } catch (trainingError) {
+      console.error("Initial persona training start failed", trainingError);
+      await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+        console.error("Couldn't finalize failed initial persona training", stateError);
+      });
+    }
     after(async () => {
       try {
-        console.info("[persona-training] initial training queued", { personaId });
-        await startPersonaTraining(db, personaId);
-      } catch (trainingError) {
-        console.error("Background initial persona training start failed", trainingError);
-        await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
-          console.error("Couldn't finalize failed initial persona training", stateError);
-        });
+        await prepareVoiceReference(db, personaId);
+      } catch (voiceError) {
+        console.error("Background voice reference preparation failed", voiceError);
       }
     });
 
-    return NextResponse.json<FinishPersonaResponseBody>({ ok: true, status: "processing", progress: 0 });
+    return NextResponse.json<FinishPersonaResponseBody>(
+      started ? { ok: true, status: "processing", progress: 1 } : { ok: true, status: "active", progress: 100 },
+    );
   } catch (error) {
     console.error("POST /api/personas/[id]/finish failed", error);
     return NextResponse.json<FinishPersonaResponseBody>(

@@ -91,72 +91,107 @@ function selectVoiceRefAsset(assets: AssetRow[]): AssetRow | null {
     .sort((a, b) => (metadataOf(b.metadata).size ?? 0) - (metadataOf(a.metadata).size ?? 0))[0] ?? null;
 }
 
-/**
- * Real per-persona training: picks the best available source for each of
- * avatar (MuseTalk) and voice (CosyVoice), submits/updates them, and clears
- * the corresponding fields when a source no longer exists (a delete leaving
- * nothing behind "unlearns" it — there's no partial/selective unlearning for
- * either model, so this is a full retrain from whatever remains).
- */
-export async function startPersonaTraining(db: PrismaClient, personaId: string): Promise<void> {
+async function loadTrainingAssets(db: PrismaClient, personaId: string) {
   const assets = await db.personaAsset.findMany({
     where: { personaId, type: { in: TRAINING_RELEVANT_ASSET_TYPES } },
     orderBy: { createdAt: "desc" },
     select: { id: true, type: true, url: true, metadata: true },
   });
+  return {
+    assets,
+    voiceAsset: selectVoiceRefAsset(assets),
+    avatarSelection: selectAvatarSourceAsset(assets),
+    idleSelection: selectIdleSourceAsset(assets),
+  };
+}
 
-  const voiceAsset = selectVoiceRefAsset(assets);
-  const avatarSelection = selectAvatarSourceAsset(assets);
-  const idleSelection = selectIdleSourceAsset(assets);
+/**
+ * Submits the MuseTalk avatar job and writes back its outcome — a real task
+ * id, a real error, or (if the required scans aren't all present yet) a
+ * clean reset to "active". Deliberately awaited directly by callers rather
+ * than wrapped in `after()`: Cloudflare's background-task extension is not a
+ * durable queue, and a network call that determines whether training is
+ * even possible must not be allowed to run only in the background. A real
+ * persona was stranded at the "starting" sentinel for hours because this
+ * used to run exclusively inside `after()` — if that callback silently
+ * never completed (platform-level, not a caught error), nothing ever wrote
+ * a terminal state, and nothing but a client re-polling the training-status
+ * endpoint past the 3-minute timeout could ever notice or recover. Bounded
+ * by submitAvatarTrainingJob's own 15s fetch timeout, so this can't hang the
+ * request that awaits it.
+ */
+export async function submitAvatarTraining(db: PrismaClient, personaId: string): Promise<{ started: boolean }> {
+  const { assets, avatarSelection, idleSelection } = await loadTrainingAssets(db, personaId);
   console.info("[persona-training] source inventory", {
     personaId,
     assetTypes: assets.map((asset) => asset.type),
-    voiceSourceAssetId: voiceAsset?.id ?? null,
     avatarSourceAssetId: avatarSelection?.id ?? null,
     idleSourceAssetId: idleSelection?.id ?? null,
   });
 
-  // Submit the avatar job before voice transcription. The GPU returns a task
-  // ID immediately, which replaces the temporary "starting" sentinel before
-  // a slower Whisper/CosyVoice reference operation can run. This is what
-  // makes progress polling durable instead of racing to a false 100%.
-  if (avatarSelection) {
-    console.info("[persona-training] avatar source selected", {
-      personaId,
-      assetId: avatarSelection.id,
-      assetType: avatarSelection.type,
-      source: metadataOf(avatarSelection.metadata).source ?? "upload",
-      fileName: originalName(avatarSelection),
-    });
-    const avatarId = `persona_${personaId}`;
-    const result = await submitAvatarTrainingJob(
-      personaId,
-      avatarId,
-      { id: avatarSelection.id, fileName: originalName(avatarSelection) },
-      idleSelection ? { id: idleSelection.id, fileName: originalName(idleSelection) } : undefined,
-    );
-    if (!result.ok) console.error("[persona-training] avatar submission failed", { personaId, error: result.error });
+  if (!avatarSelection) {
+    // Missing either dedicated scan means chat-only by design. Clear the
+    // database pointer so the old or generic avatar can never appear. The
+    // generated package stays private and inert until the next retrain or
+    // the persona's full GPU cleanup.
+    console.info("[persona-training] live video disabled until both facial scans exist", { personaId });
     await db.persona.update({
       where: { id: personaId },
-      data: result.ok
-        // Do not expose this ID to the live-session endpoint yet. The GPU
-        // service writes the avatar directory asynchronously, and loading it
-        // before the task has completed can otherwise make a conversation
-        // wait on incomplete files (or fail outright).
-        ? { avatarTrainingTaskId: result.taskId, liveAvatarId: null, avatarTrainingError: null }
-        : {
-            status: "active",
-            trainingStartedAt: null,
-            avatarTrainingTaskId: null,
-            liveAvatarId: null,
-            avatarTrainingError: result.error,
-          },
+      data: {
+        status: "active",
+        trainingStartedAt: null,
+        avatarTrainingTaskId: null,
+        liveAvatarId: null,
+        avatarTrainingError: null,
+      },
     });
+    return { started: false };
   }
 
-  // Voice-reference preparation is independent from MuseTalk. A failed
-  // transcript must not discard an already-running avatar task or strand its
-  // progress state; it simply leaves the existing/default voice unavailable.
+  console.info("[persona-training] avatar source selected", {
+    personaId,
+    assetId: avatarSelection.id,
+    assetType: avatarSelection.type,
+    source: metadataOf(avatarSelection.metadata).source ?? "upload",
+    fileName: originalName(avatarSelection),
+  });
+  const avatarId = `persona_${personaId}`;
+  const result = await submitAvatarTrainingJob(
+    personaId,
+    avatarId,
+    { id: avatarSelection.id, fileName: originalName(avatarSelection) },
+    idleSelection ? { id: idleSelection.id, fileName: originalName(idleSelection) } : undefined,
+  );
+  if (!result.ok) console.error("[persona-training] avatar submission failed", { personaId, error: result.error });
+  await db.persona.update({
+    where: { id: personaId },
+    data: result.ok
+      // Do not expose this ID to the live-session endpoint yet. The GPU
+      // service writes the avatar directory asynchronously, and loading it
+      // before the task has completed can otherwise make a conversation
+      // wait on incomplete files (or fail outright).
+      ? { avatarTrainingTaskId: result.taskId, liveAvatarId: null, avatarTrainingError: null }
+      : {
+          status: "active",
+          trainingStartedAt: null,
+          avatarTrainingTaskId: null,
+          liveAvatarId: null,
+          avatarTrainingError: result.error,
+        },
+  });
+  return { started: result.ok };
+}
+
+/**
+ * Voice-reference preparation (CosyVoice) is independent from MuseTalk and
+ * genuinely slow (a real transcription round trip), so this is the one part
+ * of training still meant to run in the background via `after()`. A failed
+ * transcript must not discard an already-running avatar task or strand its
+ * progress state; it simply leaves the existing/default voice unavailable.
+ * Bounded by saveVoiceReference's own 45s fetch timeout.
+ */
+export async function prepareVoiceReference(db: PrismaClient, personaId: string): Promise<void> {
+  const { voiceAsset } = await loadTrainingAssets(db, personaId);
   try {
     if (voiceAsset) {
       const transcript = await saveVoiceReference(personaId, {
@@ -176,25 +211,17 @@ export async function startPersonaTraining(db: PrismaClient, personaId: string):
   } catch (error) {
     console.error("[persona-training] voice reference preparation failed", { personaId, error });
   }
+}
 
-  if (avatarSelection) return;
-
-  // Missing either dedicated scan means chat-only by design. Clear the
-  // database pointer so the old or generic avatar can never appear. The
-  // generated package stays private and inert until the next retrain or the
-  // persona's full GPU cleanup; deleting it here would also delete the voice
-  // reference that was just refreshed above.
-  console.info("[persona-training] live video disabled until both facial scans exist", { personaId });
-  await db.persona.update({
-    where: { id: personaId },
-    data: {
-      status: "active",
-      trainingStartedAt: null,
-      avatarTrainingTaskId: null,
-      liveAvatarId: null,
-      avatarTrainingError: null,
-    },
-  });
+/**
+ * Convenience wrapper for callers that genuinely want to await the entire
+ * pipeline (e.g. a one-off script). Real request handlers should call
+ * submitAvatarTraining() synchronously and prepareVoiceReference() via
+ * after() instead — see the comment on submitAvatarTraining for why.
+ */
+export async function startPersonaTraining(db: PrismaClient, personaId: string): Promise<void> {
+  await submitAvatarTraining(db, personaId);
+  await prepareVoiceReference(db, personaId);
 }
 
 export async function failPersonaTrainingStart(

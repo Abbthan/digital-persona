@@ -6,7 +6,8 @@ import { deletePersonaMedia } from "@/back_end/services/storage";
 import {
   failPersonaTrainingStart,
   PERSONA_TRAINING_STARTING_TASK_ID,
-  startPersonaTraining,
+  prepareVoiceReference,
+  submitAvatarTraining,
   TRAINING_RELEVANT_ASSET_TYPES,
 } from "@/back_end/services/persona-training";
 import { deleteRagSource } from "@/back_end/services/persona-rag";
@@ -74,14 +75,23 @@ export async function DELETE(
           avatarTrainingError: null,
         },
       });
+      // Avatar submission is awaited directly (bounded, ~15s worst case),
+      // not left in after() — see the comment on submitAvatarTraining() for
+      // why: a background callback that never completes can strand a
+      // persona on the "starting" sentinel with nothing left to resolve it.
+      try {
+        await submitAvatarTraining(db, personaId);
+      } catch (trainingError) {
+        console.error("Persona retraining start failed", trainingError);
+        await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+          console.error("Couldn't finalize failed persona retraining", stateError);
+        });
+      }
       after(async () => {
         try {
-          await startPersonaTraining(db, personaId);
-        } catch (trainingError) {
-          console.error("Background persona retraining start failed", trainingError);
-          await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
-            console.error("Couldn't finalize failed persona retraining", stateError);
-          });
+          await prepareVoiceReference(db, personaId);
+        } catch (voiceError) {
+          console.error("Background voice reference preparation failed", voiceError);
         }
       });
     }

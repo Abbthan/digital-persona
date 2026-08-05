@@ -7,7 +7,8 @@ import { hasPaidAccess, isAssetTypeAllowed } from "@/back_end/services/limits";
 import {
   failPersonaTrainingStart,
   PERSONA_TRAINING_STARTING_TASK_ID,
-  startPersonaTraining,
+  prepareVoiceReference,
+  submitAvatarTraining,
   TRAINING_RELEVANT_ASSET_TYPES,
 } from "@/back_end/services/persona-training";
 import { ingestDocument } from "@/back_end/services/persona-rag";
@@ -298,12 +299,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // persona must still accept a retrigger. Re-recording facial scans one
     // at a time (guided, then passive, possibly minutes apart) means the
     // first upload can land before all three required assets exist —
-    // startPersonaTraining() then has nothing to submit and the persona
+    // submitAvatarTraining() then has nothing to submit and the persona
     // stays "processing" until either the 3-minute starting-sentinel
-    // timeout or a background job resolves it. If that gate required
+    // timeout or a later upload resolves it. If that gate required
     // "active", the *next* upload (the one that actually completes the set)
     // would be silently dropped instead of retriggering — which is exactly
-    // what happened to a real persona. startPersonaTraining() always
+    // what happened to a real persona. submitAvatarTraining() always
     // recomputes from every current asset, so re-firing it on an in-flight
     // "processing" persona is safe (worst case, a redundant GPU resubmit
     // that the single-worker task queue just serializes) and is the only
@@ -320,14 +321,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       });
       console.info("[persona-training] queued after upload", { personaId, assetId: asset.id, type });
+      // Avatar submission is awaited directly (bounded, ~15s worst case),
+      // not left in after() — see the comment on submitAvatarTraining() for
+      // why: a background callback that never completes can strand a
+      // persona on the "starting" sentinel with nothing left to resolve it.
+      // Voice-reference prep is still safe to background; it doesn't gate
+      // live-video readiness.
+      try {
+        await submitAvatarTraining(db, personaId);
+      } catch (trainingError) {
+        console.error("Persona training start failed", trainingError);
+        await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+          console.error("Couldn't finalize failed persona training", stateError);
+        });
+      }
       after(async () => {
         try {
-          await startPersonaTraining(db, personaId);
-        } catch (trainingError) {
-          console.error("Background persona training start failed", trainingError);
-          await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
-            console.error("Couldn't finalize failed persona training", stateError);
-          });
+          await prepareVoiceReference(db, personaId);
+        } catch (voiceError) {
+          console.error("Background voice reference preparation failed", voiceError);
         }
       });
     }
