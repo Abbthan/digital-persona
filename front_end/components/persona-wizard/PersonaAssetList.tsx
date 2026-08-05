@@ -29,6 +29,9 @@ function formatAssetType(asset: PersonaAssetDTO, locale: "en" | "zh") {
   if (asset.type === "video" && asset.source === PERSONA_ASSET_SOURCES.passiveFacialScan) {
     return locale === "zh" ? "自然动态面部扫描" : "passive facial scan";
   }
+  if (asset.type === "audio" && asset.source === PERSONA_ASSET_SOURCES.guidedFacialScan) {
+    return locale === "zh" ? "说话录制音频" : "recording with talking (audio)";
+  }
   if (locale === "zh") {
     const labels: Record<PersonaAssetDTO["type"], string> = {
       image: "照片",

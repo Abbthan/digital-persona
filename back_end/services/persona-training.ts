@@ -80,21 +80,30 @@ function selectIdleSourceAsset(assets: AssetRow[]): AssetRow | null {
   )) ?? null;
 }
 
-// The "recording with talking" scan is a real, consented talking clip with
-// its own audio track, so it's the top voice source whenever it exists —
-// checked independent of whether the full appearance trio is complete,
-// since voice readiness is handled separately from video readiness
-// (liveAvatarId only reflects the avatar/MuseTalk task). Below that, the
-// dedicated standalone audio_recording source is kept as a fallback for
-// personas that recorded voice before the guided scan and audio recorder
-// were merged into one capture. Uploaded files have no duration metadata,
-// so byte size is the best available proxy for "probably the longest, most
-// useful clip."
+// "Recording with talking" captures a standalone audio track alongside its
+// video (see RecordingWithTalkingTile.tsx) specifically for voice training,
+// so that's the top priority whenever it exists — a clean audio container
+// straight from the mic, not something re-extracted from a video file
+// server-side. Next is that same recording's video (its embedded audio
+// track), for personas that predate the standalone-audio-track change but
+// still have a real talking recording. Both checks are independent of
+// whether the full appearance trio is complete, since voice readiness is
+// handled separately from video readiness (liveAvatarId only reflects the
+// avatar/MuseTalk task). Below that, the dedicated standalone
+// audio_recording source is kept as a fallback for personas that recorded
+// voice before the guided scan and audio recorder were merged into one
+// capture. Uploaded files have no duration metadata, so byte size is the
+// best available proxy for "probably the longest, most useful clip."
 function selectVoiceRefAsset(assets: AssetRow[]): AssetRow | null {
-  const talkingRecording = assets.find((asset) => (
+  const talkingRecordingAudio = assets.find((asset) => (
+    asset.type === "audio" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.guidedFacialScan
+  ));
+  if (talkingRecordingAudio) return talkingRecordingAudio;
+
+  const talkingRecordingVideo = assets.find((asset) => (
     asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.guidedFacialScan
   ));
-  if (talkingRecording) return talkingRecording;
+  if (talkingRecordingVideo) return talkingRecordingVideo;
 
   const audioAssets = assets.filter((asset) => asset.type === "audio");
   const recorded = audioAssets.find((asset) => metadataOf(asset.metadata).source === "audio_recording");

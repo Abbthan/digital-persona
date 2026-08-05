@@ -47,7 +47,7 @@ function fileValidationError(file: File, type: AssetType, source: string): strin
     if (!["mp4", "mov"].includes(extension)) return "Videos must be MP4 or MOV files.";
   }
   if (type === "audio") {
-    if (source === "audio_recording" && ["webm", "m4a", "mp4"].includes(extension)) return null;
+    if ((source === "audio_recording" || source === PERSONA_ASSET_SOURCES.guidedFacialScan) && ["webm", "m4a", "mp4"].includes(extension)) return null;
     if (!["mp3", "wav"].includes(extension)) return "Audio files must be MP3 or WAV files.";
   }
   if (type === "text" && !["pdf", "txt", "docx"].includes(extension)) {
@@ -93,7 +93,17 @@ function assetLimitError(
   if (type === "audio" && source === "audio_recording" && count((asset) => asset.type === "audio" && metadataSource(asset.metadata) === "audio_recording") >= PERSONA_UPLOAD_LIMITS.audioRecording.max) {
     return "You can save one audio recording per persona.";
   }
-  if (type === "audio" && source !== "audio_recording" && count((asset) => asset.type === "audio" && metadataSource(asset.metadata) !== "audio_recording") >= planLimit(PERSONA_UPLOAD_LIMITS.audioUpload, isPaid)) {
+  if (type === "audio" && source === PERSONA_ASSET_SOURCES.guidedFacialScan && count((asset) => asset.type === "audio" && metadataSource(asset.metadata) === PERSONA_ASSET_SOURCES.guidedFacialScan) >= PERSONA_UPLOAD_LIMITS.facialScan.max) {
+    return "You can add one recording-with-talking audio track per persona.";
+  }
+  if (
+    type === "audio" && source !== "audio_recording" && source !== PERSONA_ASSET_SOURCES.guidedFacialScan &&
+    count((asset) => (
+      asset.type === "audio" &&
+      metadataSource(asset.metadata) !== "audio_recording" &&
+      metadataSource(asset.metadata) !== PERSONA_ASSET_SOURCES.guidedFacialScan
+    )) >= planLimit(PERSONA_UPLOAD_LIMITS.audioUpload, isPaid)
+  ) {
     return `You can upload up to ${planLimit(PERSONA_UPLOAD_LIMITS.audioUpload, isPaid)} audio files per persona.`;
   }
   return null;
@@ -246,7 +256,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         (
           type === "facial_scan" ||
           (type === "video" && isDedicatedFacialVideoSource(source) && metadataSource(asset.metadata) === source) ||
-          (type === "audio" && source === "audio_recording" && metadataSource(asset.metadata) === "audio_recording")
+          (type === "audio" && source === "audio_recording" && metadataSource(asset.metadata) === "audio_recording") ||
+          (type === "audio" && source === PERSONA_ASSET_SOURCES.guidedFacialScan && metadataSource(asset.metadata) === PERSONA_ASSET_SOURCES.guidedFacialScan)
         )
       ))
       : undefined;

@@ -90,7 +90,7 @@ export function PassiveFacialScanTile({
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
+        video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 720 }, aspectRatio: { ideal: 4 / 3 } },
         audio: false,
       });
       const format = preferredVideoRecording();
@@ -177,7 +177,7 @@ export function PassiveFacialScanTile({
             ? `Scanning natural movement — ${secondsRemaining}s remaining`
             : "Look toward the camera and stay relaxed. Blink, breathe, and make small natural movements without speaking."}
         </p>
-        {scanning && <video ref={videoRef} autoPlay muted playsInline className="mt-lg h-64 w-full rounded-md bg-surface-black object-cover" />}
+        {scanning && <video ref={videoRef} autoPlay muted playsInline className="mt-lg aspect-[4/3] w-full rounded-md bg-surface-black object-cover" />}
         <Button variant="secondary" className="mt-lg w-full" onClick={scanning ? finishScan : startScan} disabled={saving}>
           {saving ? "Saving…" : scanning ? `Stop & save (${secondsRemaining}s)` : "Start passive scan"}
         </Button>
