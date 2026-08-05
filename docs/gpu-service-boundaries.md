@@ -10,15 +10,16 @@ the GPU host.
 | Module | Responsibility | Must not own | Runtime data |
 | --- | --- | --- | --- |
 | LiveTalking | WebRTC signalling/media and avatar inference | TTS implementation, STT implementation, vector storage | persona avatar packages only |
-| FastWhisper STT | audio/video transcription and language detection | avatar generation, TTS, Chroma writes | disposable job files and transcript results |
-| CozyVoice TTS | prepared-reference voice synthesis | WebRTC, source-file ownership, vector retrieval | voice-reference cache only |
-| persona-RAG | extraction, embeddings, retrieval and prompt-context assembly | LLM calls, TTS, avatar inference | Chroma database only |
-| Chroma data | persisted vector index | application code or model weights | a dedicated mounted data directory only |
+| FastWhisper STT | audio/video transcription and language detection | avatar generation, TTS, memory writes | disposable job files and transcript results |
+| CozyVoice TTS | prepared-reference voice synthesis | WebRTC, source-file ownership, memory retrieval | voice-reference cache only |
+| agentic-memory | bilingual extraction, Mem0 retrieval, graph projection and prompt-context assembly | LLM reply calls, TTS, avatar inference | Qdrant and Neo4j only |
+| legacy persona-RAG | temporary shadow-write and rollback path | new graph memory | Chroma database only |
+| memory data | persisted vectors and graph | application code or model weights | dedicated Qdrant, Neo4j and rollback Chroma directories |
 | models | downloaded/checkpoint weights | mutable application state or persona-private records | read-only shared model cache only |
 
 Each service has its own virtual environment/container, health endpoint,
 restart policy, structured logs, and resource assignment. A failure or restart
-of CozyVoice must not restart LiveTalking; a Chroma rebuild must not alter
+of CozyVoice must not restart LiveTalking; a memory rebuild must not alter
 model files; FastWhisper jobs must use a disposable work directory.
 
 ## Repository and application adapters
@@ -51,11 +52,13 @@ the data directories below to Git.
     livetalking/           # code + environment for avatar/WebRTC service
     fastwhisper/           # code + environment for STT worker/API
     cosyvoice/             # code + environment for TTS API
-    persona-rag/           # code + environment for retrieval API
+    agentic-memory/        # Mem0/Qdrant + graph retrieval API
+    persona-rag/           # legacy rollback service during rollout
   runtime/
     avatars/               # persona packages; private, not Git
     voice-references/      # private, not Git
-    chroma/                # private vector data, not Git
+    agentic-memory/        # private Qdrant + Neo4j data, not Git
+    chroma/                # legacy rollback vector data, not Git
     jobs/                  # disposable files, not Git
   models/                  # read-only model/cache mount, not Git
 ```

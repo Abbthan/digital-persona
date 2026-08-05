@@ -1,4 +1,9 @@
-# Persona RAG (memory/knowledge retrieval)
+# Persona RAG (legacy rollback service)
+
+> Production migration is moving this Chroma-only implementation to the
+> vector + graph architecture in [agentic-memory.md](agentic-memory.md). The
+> API contract remains compatible; Chroma stays online for shadow writes and
+> rollback until the new service is proven stable.
 
 A standalone FastAPI service on the same GPU box as LiveTalking/CosyVoice —
 `persona-rag` — gives each persona a real vector-store memory: it ingests

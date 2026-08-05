@@ -1,0 +1,68 @@
+--- a/app.py
++++ b/app.py
+@@ -345,19 +345,58 @@
+ # persona-rag's own check (same token scheme) passes too.
++async def _rag_request(url, method, body, headers, query):
++    timeout = aiohttp.ClientTimeout(total=190)
++    async with aiohttp.ClientSession(timeout=timeout) as session:
++        async with session.request(method, url, data=body, headers=headers, params=query) as resp:
++            return await resp.read(), resp.status, resp.content_type
++
++
++async def _shadow_legacy_rag(tail, method, body, headers, query):
++    try:
++        await _rag_request(
++            f"http://127.0.0.1:9000/api/rag/{tail}", method, body, headers, query,
++        )
++    except Exception:
++        logger.warning("Legacy RAG shadow write failed for %s", tail, exc_info=True)
++
++
+ async def rag_proxy(request):
+     tail = request.match_info.get('tail', '')
+-    target_url = f"http://127.0.0.1:9000/api/rag/{tail}"
++    primary = os.environ.get("PERSONA_MEMORY_URL", "http://127.0.0.1:9000").rstrip("/")
++    legacy = "http://127.0.0.1:9000"
++    target_url = f"{primary}/api/rag/{tail}"
+     body = await request.read()
+     headers = {}
+     if request.headers.get("Content-Type"):
+         headers["Content-Type"] = request.headers["Content-Type"]
+     if request.headers.get("Authorization"):
+         headers["Authorization"] = request.headers["Authorization"]
+-    async with aiohttp.ClientSession() as session:
+-        async with session.request(
+-            request.method, target_url, data=body, headers=headers, params=request.query,
+-        ) as resp:
+-            response_body = await resp.read()
+-            return web.Response(body=response_body, status=resp.status, content_type=resp.content_type)
++    query = list(request.query.items())
++    try:
++        response_body, status, content_type = await _rag_request(
++            target_url, request.method, body, headers, query,
++        )
++    except (aiohttp.ClientError, asyncio.TimeoutError):
++        if primary == legacy:
++            raise
++        logger.warning("Agentic Memory unavailable; using legacy Chroma", exc_info=True)
++        response_body, status, content_type = await _rag_request(
++            f"{legacy}/api/rag/{tail}", request.method, body, headers, query,
++        )
++    else:
++        if primary != legacy and status >= 500:
++            logger.warning("Agentic Memory returned %s; using legacy Chroma", status)
++            response_body, status, content_type = await _rag_request(
++                f"{legacy}/api/rag/{tail}", request.method, body, headers, query,
++            )
++        elif (primary != legacy
++                and (request.method == "DELETE" or tail.startswith("ingest/"))
++                and os.environ.get("PERSONA_MEMORY_SHADOW_LEGACY", "1") == "1"):
++            asyncio.create_task(
++                _shadow_legacy_rag(tail, request.method, body, headers, query)
++            )
++    return web.Response(
++        body=response_body, status=status, content_type=content_type,
++    )
+ 
+ async def on_shutdown(app):
+     await rtc_manager.shutdown()

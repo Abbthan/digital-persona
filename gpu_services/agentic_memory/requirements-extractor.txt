@@ -1,0 +1,6 @@
+# Install with the CUDA 12.1 PyTorch wheel source used by the GPU host.
+torch==2.5.1
+transformers==5.14.1
+accelerate==1.14.0
+aiohttp==3.14.3
+pydantic==2.13.4

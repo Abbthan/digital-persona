@@ -1,0 +1,21 @@
+services:
+  neo4j:
+    image: neo4j:2026.06.0
+    container_name: echo-agentic-memory-neo4j
+    restart: unless-stopped
+    user: "7474:7474"
+    userns_mode: host
+    ports:
+      - "127.0.0.1:7687:7687"
+    volumes:
+      # The enclosing agentic-memory directory is mode 700. Its data child
+      # is writable by Docker's remapped Neo4j UID but remains unreachable
+      # to other host users because they cannot traverse the private parent.
+      - /data/echodigitalpersona/runtime/agentic-memory/neo4j/data:/data
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD}"
+      NEO4J_server_memory_heap_initial__size: 1G
+      NEO4J_server_memory_heap_max__size: 2G
+      NEO4J_server_memory_pagecache_size: 2G
+      NEO4J_server_http_enabled: "false"
+      NEO4J_dbms_usage__report_enabled: "false"
