@@ -24,7 +24,7 @@ function formatFileSize(size: number | null) {
 
 function formatAssetType(asset: PersonaAssetDTO, locale: "en" | "zh") {
   if (asset.type === "video" && asset.source === PERSONA_ASSET_SOURCES.guidedFacialScan) {
-    return locale === "zh" ? "引导式面部扫描" : "guided facial scan";
+    return locale === "zh" ? "说话录制" : "recording with talking";
   }
   if (asset.type === "video" && asset.source === PERSONA_ASSET_SOURCES.passiveFacialScan) {
     return locale === "zh" ? "自然动态面部扫描" : "passive facial scan";

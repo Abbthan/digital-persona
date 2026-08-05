@@ -6,11 +6,10 @@ import { useAuth } from "@/front_end/state/auth-context";
 import { hasPaidAccess } from "@/back_end/services/limits";
 import { PERSONA_UPLOAD_LIMITS, planLimit } from "@/shared/persona-upload-limits";
 import { useModalController } from "@/front_end/state/modal-context";
-import { AudioRecorderTile } from "./AudioRecorderTile";
-import { FacialScanTile } from "./FacialScanTile";
 import { FileUploadTile } from "./FileUploadTile";
 import { PassiveFacialScanTile } from "./PassiveFacialScanTile";
 import { PersonaAssetList } from "./PersonaAssetList";
+import { RecordingWithTalkingTile } from "./RecordingWithTalkingTile";
 import { SocialLinkTile } from "./SocialLinkTile";
 
 type UploadWizardProps = {
@@ -118,7 +117,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
             onLockedClick={openPricing}
             onUploaded={handleAssetUploaded}
           />
-          <FacialScanTile
+          <RecordingWithTalkingTile
             personaId={personaId}
             personaName={personaName}
             locked={!isPaid}
@@ -144,12 +143,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
             multiple
             onUploaded={handleAssetUploaded}
           />
-          <AudioRecorderTile personaId={personaId} personaName={personaName} onUploaded={handleAssetUploaded} />
         </div>
-
-        <p className="mt-sm rounded-md border border-hairline bg-canvas-parchment p-sm font-text text-caption text-ink-muted-80">
-          Live video is enabled only after both the guided and passive facial scans are saved. Without both scans, the persona will remain available for chat only.
-        </p>
 
         <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Text &amp; Links</p>
         <div className="mt-xs grid grid-cols-1 gap-sm sm:grid-cols-2">

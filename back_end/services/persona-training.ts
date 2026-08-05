@@ -5,7 +5,7 @@ import {
   submitAvatarTrainingJob,
 } from "@/back_end/services/live-avatar";
 import { saveVoiceReference } from "@/back_end/services/speech";
-import { PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
+import { isDedicatedFacialVideoSource, PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 
 export type PersonaTrainingState = {
   status: "processing" | "active";
@@ -34,18 +34,20 @@ function originalName(asset: AssetRow): string {
 }
 
 /**
- * Live video is deliberately gated on two purpose-recorded inputs. Both are
- * required as an explicit identity/consent reference and a real motion
- * source, but they now feed two separate loops: the guided scan (LivePortrait-
- * enhanced) becomes MuseTalk's primary baked avatar — its genuinely recorded
- * talking motion is what shows during actual speech — while the passive
- * scan's closed-mouth blinking/breathing loop is baked separately as the
- * idle-only source LiveTalking switches to while no speech is playing (see
- * personaIdleActionConfig / docs/gpu-liveportrait-integration.md). Before
- * that idle loop existed, the passive scan had to double as both — this
- * selection changed once it no longer needs to. Ordinary video uploads
- * remain available to RAG/media analysis, but cannot silently enable a live
- * likeness or replace either consented scan.
+ * Live video prefers two purpose-recorded inputs: the "recording with
+ * talking" scan (LivePortrait-enhanced) becomes MuseTalk's primary baked
+ * avatar — its genuinely recorded talking motion is what shows during
+ * actual speech — while the passive scan's closed-mouth blinking/breathing
+ * loop is baked separately as the idle-only source LiveTalking switches to
+ * while no speech is playing (see personaIdleActionConfig /
+ * docs/gpu-liveportrait-integration.md).
+ *
+ * When that dedicated trio isn't complete, fall back to a plain uploaded
+ * video, then a plain uploaded photo, rather than disabling live video
+ * outright — a video is preferred for its real motion, but the GPU trainer
+ * already supports a photo-only source by looping it into a short clip (see
+ * submitAvatarTrainingJob's docstring), so a photo still degrades
+ * gracefully. Returns null only when nothing at all is usable.
  */
 export function selectAvatarSourceAsset(assets: AssetRow[]): AssetRow | null {
   const facialReference = assets.find((asset) => asset.type === "facial_scan") ?? null;
@@ -56,7 +58,14 @@ export function selectAvatarSourceAsset(assets: AssetRow[]): AssetRow | null {
     asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.passiveFacialScan
   )) ?? null;
 
-  return facialReference && guidedScan && passiveScan ? guidedScan : null;
+  if (facialReference && guidedScan && passiveScan) return guidedScan;
+
+  const fallbackVideo = assets.find((asset) => (
+    asset.type === "video" && !isDedicatedFacialVideoSource(metadataOf(asset.metadata).source)
+  )) ?? null;
+  if (fallbackVideo) return fallbackVideo;
+
+  return assets.find((asset) => asset.type === "image") ?? null;
 }
 
 // The passive scan, gated by the same three-asset requirement as
@@ -71,10 +80,22 @@ function selectIdleSourceAsset(assets: AssetRow[]): AssetRow | null {
   )) ?? null;
 }
 
-// The dedicated recorder produces exactly one known-good sample; uploaded
-// files have no duration metadata, so byte size is the best available proxy
-// for "probably the longest, most useful clip."
+// The "recording with talking" scan is a real, consented talking clip with
+// its own audio track, so it's the top voice source whenever it exists —
+// checked independent of whether the full appearance trio is complete,
+// since voice readiness is handled separately from video readiness
+// (liveAvatarId only reflects the avatar/MuseTalk task). Below that, the
+// dedicated standalone audio_recording source is kept as a fallback for
+// personas that recorded voice before the guided scan and audio recorder
+// were merged into one capture. Uploaded files have no duration metadata,
+// so byte size is the best available proxy for "probably the longest, most
+// useful clip."
 function selectVoiceRefAsset(assets: AssetRow[]): AssetRow | null {
+  const talkingRecording = assets.find((asset) => (
+    asset.type === "video" && metadataOf(asset.metadata).source === PERSONA_ASSET_SOURCES.guidedFacialScan
+  ));
+  if (talkingRecording) return talkingRecording;
+
   const audioAssets = assets.filter((asset) => asset.type === "audio");
   const recorded = audioAssets.find((asset) => metadataOf(asset.metadata).source === "audio_recording");
   if (recorded) return recorded;
@@ -83,11 +104,11 @@ function selectVoiceRefAsset(assets: AssetRow[]): AssetRow | null {
   if (largestAudio) return largestAudio;
 
   // `saveVoiceReference()` uses ffmpeg, so the audio track of an MP4/MOV can
-  // be normalized into the same 16 kHz WAV reference as MP3/WAV/WebM uploads.
-  // Prefer a dedicated recording whenever available, but do not discard the
-  // useful speech a creator supplied only inside a video.
+  // be normalized into the same 16 kHz WAV reference as MP3/WAV/WebM
+  // uploads. The passive scan is silent by design (no speech), so it's
+  // excluded here — it would never be a useful voice source.
   return assets
-    .filter((asset) => asset.type === "video")
+    .filter((asset) => asset.type === "video" && !isDedicatedFacialVideoSource(metadataOf(asset.metadata).source))
     .sort((a, b) => (metadataOf(b.metadata).size ?? 0) - (metadataOf(a.metadata).size ?? 0))[0] ?? null;
 }
 

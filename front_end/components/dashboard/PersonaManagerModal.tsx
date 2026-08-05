@@ -10,11 +10,10 @@ import { useLocale } from "@/front_end/state/locale-context";
 import type { DeleteAssetResponseBody } from "@/back_end/api/personas/[id]/assets/[assetId]/route";
 import type { ListAssetsResponseBody, PersonaAssetDTO } from "@/back_end/api/personas/[id]/assets/route";
 import type { DeletePersonaResponseBody } from "@/back_end/api/personas/[id]/route";
-import { AudioRecorderTile } from "@/front_end/components/persona-wizard/AudioRecorderTile";
-import { FacialScanTile } from "@/front_end/components/persona-wizard/FacialScanTile";
 import { FileUploadTile } from "@/front_end/components/persona-wizard/FileUploadTile";
 import { PassiveFacialScanTile } from "@/front_end/components/persona-wizard/PassiveFacialScanTile";
 import { PersonaAssetList } from "@/front_end/components/persona-wizard/PersonaAssetList";
+import { RecordingWithTalkingTile } from "@/front_end/components/persona-wizard/RecordingWithTalkingTile";
 import { SocialLinkTile } from "@/front_end/components/persona-wizard/SocialLinkTile";
 
 type PersonaManagerModalProps = {
@@ -220,7 +219,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
                 onLockedClick={openPricing}
                 onUploaded={handleAssetUploaded}
               />
-              <FacialScanTile
+              <RecordingWithTalkingTile
                 personaId={personaId}
                 personaName={persona.name}
                 locked={!isPaid}
@@ -244,16 +243,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
                 multiple
                 onUploaded={handleAssetUploaded}
               />
-              <AudioRecorderTile
-                personaId={personaId}
-                personaName={persona.name}
-                onUploaded={handleAssetUploaded}
-              />
             </div>
-
-            <p className="mt-sm rounded-md border border-hairline bg-canvas-parchment p-sm font-text text-caption text-ink-muted-80">
-              Live video is enabled only after both the guided and passive facial scans are saved. Without both scans, the persona remains available for chat only.
-            </p>
 
             <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Text &amp; Links</p>
             <div className="mt-xs grid grid-cols-1 gap-sm sm:grid-cols-2">

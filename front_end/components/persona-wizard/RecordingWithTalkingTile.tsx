@@ -9,7 +9,7 @@ import { RecordingConsent } from "./RecordingConsent";
 import { preferredVideoRecording } from "./recording-media";
 import { UploadTileShell } from "./UploadTileShell";
 
-type FacialScanTileProps = {
+type RecordingWithTalkingTileProps = {
   personaId: string;
   personaName: string;
   locked?: boolean;
@@ -27,14 +27,14 @@ function captureSnapshot(video: HTMLVideoElement): Promise<Blob | null> {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
 }
 
-export function FacialScanTile({
+export function RecordingWithTalkingTile({
   personaId,
   personaName,
   locked,
   onLockedClick,
   onUploaded,
   deferTraining = false,
-}: FacialScanTileProps) {
+}: RecordingWithTalkingTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -108,9 +108,12 @@ export function FacialScanTile({
   async function startScan() {
     setError(null);
     try {
+      // Camera and microphone captured together in one stream — this
+      // recording drives both appearance training (MuseTalk/LivePortrait)
+      // and voice training (CosyVoice) from a single take.
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user" },
-        audio: false,
+        audio: true,
       });
       const format = preferredVideoRecording();
       const recorder = format.mimeType ? new MediaRecorder(stream, { mimeType: format.mimeType }) : new MediaRecorder(stream);
@@ -143,8 +146,9 @@ export function FacialScanTile({
 
         setSaving(true);
         const stamp = Date.now();
-        // The image provides a stable face reference; the paired motion clip
-        // is what the avatar trainer uses for natural idle motion and speech.
+        // The image provides a stable face reference; the paired
+        // recording (with audio) is what the avatar trainer uses for
+        // talking motion and what CosyVoice uses for voice training.
         const scan = new File([snapshot], `facial-scan-${stamp}.jpg`, { type: "image/jpeg" });
         const scanResult = await uploadPersonaAsset(
           personaId,
@@ -192,35 +196,35 @@ export function FacialScanTile({
       setScanning(true);
     } catch {
       stopCamera();
-      setError("Camera permission was denied.");
+      setError("Camera or microphone access was denied.");
     }
   }
 
   return (
     <>
       <UploadTileShell
-        label="Guided facial scan"
-        description="One 40-second guided scan per persona — re-scanning replaces it"
+        label="Recording with talking"
+        description="One 40-second recording of you talking — captures video and voice together; re-recording replaces it"
         locked={locked}
         onLockedClick={onLockedClick}
       >
         <Button variant="secondary" className="w-full" onClick={() => { setError(null); setOpen(true); }}>
-          Start guided scan
+          Start recording
         </Button>
         {error && <p role="alert" className="font-text text-caption text-red-500">{error}</p>}
       </UploadTileShell>
 
       <Modal open={open} onClose={cancelScan} maxWidthClassName="max-w-[38rem]" className="max-h-[calc(100dvh-3rem)] overflow-y-auto">
-        <h2 className="font-display text-tagline text-ink">Guided scan for {personaName}</h2>
+        <h2 className="font-display text-tagline text-ink">{`Recording with talking for ${personaName}`}</h2>
         <p className="mt-xs font-text text-caption text-ink-muted-80">
-          {scanning ? `Scanning — ${secondsRemaining}s remaining` : "Start when you are ready. It saves a face reference and a motion clip when you stop or when time runs out."}
+          {scanning ? `Recording — ${secondsRemaining}s remaining` : "Start when you are ready. It saves a face reference and a video-and-voice recording when you stop or when time runs out."}
         </p>
         <div className="mt-lg border-y border-hairline py-lg">
           <RecordingConsent personaName={personaName} />
         </div>
         {scanning && <video ref={videoRef} autoPlay muted playsInline className="mt-lg h-56 w-full rounded-md bg-surface-black object-cover" />}
         <Button variant="secondary" className="mt-lg w-full" onClick={scanning ? finishScan : startScan} disabled={saving}>
-          {saving ? "Saving…" : scanning ? `Stop & save (${secondsRemaining}s)` : "Start scan"}
+          {saving ? "Saving…" : scanning ? `Stop & save (${secondsRemaining}s)` : "Start recording"}
         </Button>
         {error && <p role="alert" className="mt-sm font-text text-caption text-red-500">{error}</p>}
       </Modal>

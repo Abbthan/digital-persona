@@ -481,7 +481,7 @@ export function PersonaConversationView({
       ) : (
         <div className="flex flex-shrink-0 items-center border-b border-hairline bg-canvas-parchment px-lg py-sm">
           <p className="font-text text-caption text-ink-muted-80">
-            Complete both the guided and passive facial scans to enable live video. Chat remains available.
+            Add source material to enable live video. Chat remains available.
           </p>
         </div>
       )}
