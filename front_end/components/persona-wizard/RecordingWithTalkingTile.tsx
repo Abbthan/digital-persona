@@ -6,7 +6,7 @@ import { uploadPersonaAsset } from "@/front_end/state/persona-client";
 import { PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 import { PERSONA_UPLOAD_LIMITS } from "@/shared/persona-upload-limits";
 import { RecordingConsent } from "./RecordingConsent";
-import { preferredVideoRecording } from "./recording-media";
+import { preferredVideoWithAudioRecording } from "./recording-media";
 import { UploadTileShell } from "./UploadTileShell";
 
 type RecordingWithTalkingTileProps = {
@@ -115,7 +115,7 @@ export function RecordingWithTalkingTile({
         video: { facingMode: "user" },
         audio: true,
       });
-      const format = preferredVideoRecording();
+      const format = preferredVideoWithAudioRecording();
       const recorder = format.mimeType ? new MediaRecorder(stream, { mimeType: format.mimeType }) : new MediaRecorder(stream);
       streamRef.current = stream;
       chunksRef.current = [];
@@ -141,6 +141,16 @@ export function RecordingWithTalkingTile({
         if (!snapshot || motionBlob.size === 0) {
           finishingRef.current = false;
           setError("Couldn't save the facial motion scan. Please try again.");
+          return;
+        }
+        // preferredVideoWithAudioRecording() only offers codec strings that
+        // name an audio codec, but this stays as a last-resort check: if
+        // the browser still negotiated something audio-less, refuse to
+        // upload a silent "talking" recording rather than letting it
+        // through and only surfacing the gap downstream in voice training.
+        if (!/mp4a|opus/i.test(motionType)) {
+          finishingRef.current = false;
+          setError("Couldn't capture audio with this recording. Please check your microphone and try again.");
           return;
         }
 
