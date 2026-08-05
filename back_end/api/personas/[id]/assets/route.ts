@@ -321,25 +321,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       });
       console.info("[persona-training] queued after upload", { personaId, assetId: asset.id, type });
-      // Avatar submission is awaited directly (bounded, ~15s worst case),
-      // not left in after() — see the comment on submitAvatarTraining() for
-      // why: a background callback that never completes can strand a
-      // persona on the "starting" sentinel with nothing left to resolve it.
-      // Voice-reference prep is still safe to background; it doesn't gate
-      // live-video readiness.
-      try {
-        await submitAvatarTraining(db, personaId);
-      } catch (trainingError) {
-        console.error("Persona training start failed", trainingError);
-        await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
-          console.error("Couldn't finalize failed persona training", stateError);
-        });
-      }
+      // Backgrounded via after() — avatar submission normally takes ~35s
+      // (synchronous ffmpeg canonicalization on the GPU box), too long to
+      // await directly without risking the platform's own request timeout.
+      // If after() silently never completes, resolvePersonaTrainingState's
+      // polling retries the submission inline once the "starting" sentinel
+      // goes stale, so this self-heals without needing another upload.
       after(async () => {
         try {
+          await submitAvatarTraining(db, personaId);
           await prepareVoiceReference(db, personaId);
-        } catch (voiceError) {
-          console.error("Background voice reference preparation failed", voiceError);
+        } catch (trainingError) {
+          console.error("Background persona training start failed", trainingError);
+          await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+            console.error("Couldn't finalize failed persona training", stateError);
+          });
         }
       });
     }

@@ -256,13 +256,18 @@ export async function submitAvatarTrainingJob(
           idle_file_name: idleSourceAsset.fileName,
         } : {}),
       }),
-      // This only enqueues the job and returns a task id — it must not hang
-      // indefinitely on a slow/unresponsive GPU box. Without this, a stuck
-      // fetch here never throws, so the caller's try/catch never runs and a
-      // persona can be stranded at status "processing" forever (see the
-      // matching note on saveVoiceReference below, which is the incident
-      // that surfaced this gap).
-      signal: AbortSignal.timeout(15_000),
+      // This enqueues the job, but the GPU box does synchronous ffmpeg
+      // canonicalization of both source videos before it returns a task id
+      // — measured at ~35s in production for a guided+idle pair, not the
+      // near-instant response this endpoint's name suggests. The timeout
+      // must clear that with real margin (larger videos, GPU load) or it
+      // aborts perfectly healthy submissions. Still must not hang
+      // indefinitely on a genuinely slow/unresponsive GPU box — without a
+      // bound, a stuck fetch here never throws, so the caller's try/catch
+      // never runs and a persona can be stranded at status "processing"
+      // forever (see the matching note on saveVoiceReference below, which
+      // is the incident that surfaced this gap).
+      signal: AbortSignal.timeout(90_000),
     });
     const body = (await response.json()) as { code: number; msg: string; data?: { task_id: string } };
     if (!response.ok || body.code !== 0 || !body.data) {

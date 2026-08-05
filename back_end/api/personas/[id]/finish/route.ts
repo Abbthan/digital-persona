@@ -56,32 +56,29 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       },
     });
 
-    // Avatar submission is awaited directly (bounded, ~15s worst case) so
-    // the persona never leaves this request still sitting on the "starting"
-    // sentinel with nothing that will ever resolve it — see the comment on
-    // submitAvatarTraining(). Voice-reference prep is the one part still
-    // safe to leave in the background: it doesn't gate live video readiness.
-    let started = false;
-    try {
-      console.info("[persona-training] initial training queued", { personaId });
-      ({ started } = await submitAvatarTraining(db, personaId));
-    } catch (trainingError) {
-      console.error("Initial persona training start failed", trainingError);
-      await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
-        console.error("Couldn't finalize failed initial persona training", stateError);
-      });
-    }
+    // Avatar submission normally takes ~35s (the GPU box runs synchronous
+    // ffmpeg canonicalization on both source videos before returning a task
+    // id) — too long to await directly without risking the platform's own
+    // request timeout, so this stays backgrounded via after(). The gap that
+    // stranded a persona for hours when after() silently never completed is
+    // now closed differently: resolvePersonaTrainingState's polling retries
+    // the submission inline once the "starting" sentinel goes stale, so a
+    // lost background task self-heals on the next status check instead of
+    // requiring the user to notice and re-save a scan.
     after(async () => {
       try {
+        console.info("[persona-training] initial training queued", { personaId });
+        await submitAvatarTraining(db, personaId);
         await prepareVoiceReference(db, personaId);
-      } catch (voiceError) {
-        console.error("Background voice reference preparation failed", voiceError);
+      } catch (trainingError) {
+        console.error("Background initial persona training start failed", trainingError);
+        await failPersonaTrainingStart(db, personaId, trainingError).catch((stateError) => {
+          console.error("Couldn't finalize failed initial persona training", stateError);
+        });
       }
     });
 
-    return NextResponse.json<FinishPersonaResponseBody>(
-      started ? { ok: true, status: "processing", progress: 1 } : { ok: true, status: "active", progress: 100 },
-    );
+    return NextResponse.json<FinishPersonaResponseBody>({ ok: true, status: "processing", progress: 0 });
   } catch (error) {
     console.error("POST /api/personas/[id]/finish failed", error);
     return NextResponse.json<FinishPersonaResponseBody>(

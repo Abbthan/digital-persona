@@ -252,6 +252,30 @@ export async function resolvePersonaTrainingState(
     const ageMs = persona.trainingStartedAt ? Date.now() - persona.trainingStartedAt.getTime() : 0;
     if (ageMs < TRAINING_START_TIMEOUT_MS) return { status: "processing", progress: 1 };
 
+    // Still on the "starting" sentinel this long after training began means
+    // the background after() submission either never ran or died mid-flight
+    // — Cloudflare's background-task extension is not a durable queue, and
+    // a real persona was once stranded here for hours with no error ever
+    // written back. A real submission normally resolves in well under a
+    // minute (the GPU box's synchronous ffmpeg canonicalization of both
+    // source videos measured ~35s), so past this timeout it's safe to treat
+    // the original attempt as dead and retry inline — bounded by
+    // submitAvatarTrainingJob's own fetch timeout, so this can't hang the
+    // poll that triggered it. This is what makes recovery automatic instead
+    // of requiring the user to notice and re-save a scan themselves.
+    console.warn("[persona-training] starting sentinel timed out, retrying inline", { personaId: persona.id });
+    try {
+      const { started } = await submitAvatarTraining(db, persona.id);
+      // submitAvatarTraining always writes a terminal state itself — either
+      // a real task id (started) or a settled "active" state (with or
+      // without an error) when it couldn't start. Nothing left to reconcile.
+      return started ? { status: "processing", progress: 1 } : { status: "active", progress: 100 };
+    } catch (error) {
+      console.error("[persona-training] inline retry failed", { personaId: persona.id, error });
+    }
+
+    // Only reached if the retry itself threw (a genuine DB error — a GPU
+    // submission failure is caught and handled inside submitAvatarTraining).
     const error = "Persona preparation did not start in time. The persona is available for chat; re-save either facial scan to retry live video.";
     await db.persona.updateMany({
       where: {
