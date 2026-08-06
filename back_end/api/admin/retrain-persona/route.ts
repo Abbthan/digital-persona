@@ -99,7 +99,12 @@ export async function POST(request: NextRequest) {
       },
       select: { id: true, status: true, liveAvatarId: true, avatarTrainingTaskId: true, avatarTrainingError: true },
     });
-    return NextResponse.json({ ok: true, reconciled: updated });
+    await prepareVoiceReference(db, personaId);
+    const refreshed = await db.persona.findUnique({
+      where: { id: personaId },
+      select: { voiceRefTranscript: true },
+    });
+    return NextResponse.json({ ok: true, reconciled: updated, voiceRefTranscript: refreshed?.voiceRefTranscript });
   }
 
   try {
