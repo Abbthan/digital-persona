@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/back_end/services/db";
-import { submitAvatarTraining, prepareVoiceReference, resolvePersonaTrainingState } from "@/back_end/services/persona-training";
+import {
+  submitAvatarTraining,
+  prepareVoiceReference,
+  resolvePersonaTrainingState,
+  selectAvatarSourceAsset,
+  TRAINING_RELEVANT_ASSET_TYPES,
+} from "@/back_end/services/persona-training";
 
 // TEMPORARY debug route — added to trigger a real retrain for a specific
 // persona outside the normal authenticated user flow (server-side
@@ -39,7 +45,25 @@ export async function GET(request: NextRequest) {
       trainingState: await resolvePersonaTrainingState(db, persona).catch((error) => String(error)),
     })),
   );
-  return NextResponse.json({ ok: true, personas: withState });
+
+  // Debug: replicate loadTrainingAssets' exact query + selection for the
+  // first matching persona, to see precisely why avatarSelection is/isn't
+  // found without guessing.
+  const debugPersonaId = personas[0]?.id;
+  let debugSelection: unknown = null;
+  if (debugPersonaId) {
+    const relevantAssets = await db.personaAsset.findMany({
+      where: { personaId: debugPersonaId, type: { in: TRAINING_RELEVANT_ASSET_TYPES } },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, type: true, url: true, metadata: true },
+    });
+    debugSelection = {
+      relevantAssets,
+      avatarSelection: selectAvatarSourceAsset(relevantAssets),
+    };
+  }
+
+  return NextResponse.json({ ok: true, personas: withState, debugSelection });
 }
 
 export async function POST(request: NextRequest) {
