@@ -78,6 +78,30 @@ export async function POST(request: NextRequest) {
   }
 
   const db = getDb();
+
+  // reconcile: the GPU task actually completed, but the Worker's own fetch
+  // to submitAvatarTrainingJob timed out waiting for the response (the GPU
+  // was busy on a live session's synchronous ffmpeg work), so
+  // submitAvatarTraining already wrote a false "failed" terminal state.
+  // Mirrors exactly what resolvePersonaTrainingState writes on a real
+  // observed "completed" task (see persona-training.ts) — not reimplemented
+  // from scratch.
+  const completedTaskId = typeof body?.completedTaskId === "string" ? body.completedTaskId : "";
+  if (completedTaskId) {
+    const updated = await db.persona.update({
+      where: { id: personaId },
+      data: {
+        status: "active",
+        trainingStartedAt: null,
+        avatarTrainingTaskId: completedTaskId,
+        liveAvatarId: `persona_${personaId}`,
+        avatarTrainingError: null,
+      },
+      select: { id: true, status: true, liveAvatarId: true, avatarTrainingTaskId: true, avatarTrainingError: true },
+    });
+    return NextResponse.json({ ok: true, reconciled: updated });
+  }
+
   try {
     const avatarResult = await submitAvatarTraining(db, personaId);
     const voiceResult = await prepareVoiceReference(db, personaId);
