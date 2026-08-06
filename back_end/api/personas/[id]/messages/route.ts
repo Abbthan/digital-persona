@@ -165,33 +165,45 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       console.error("Chat metric increment failed", metricError);
     });
 
-    // Start the avatar request as soon as the reply is known, rather than
-    // returning it to the browser and waiting for a second client-side HTTP
-    // request. `after()` is backed by Cloudflare's waitUntil in this OpenNext
-    // deployment, so the response remains fast while the Worker is kept alive
-    // for the short server-to-server enqueue request. If no live session is
-    // available, the client retains its existing on-connect fallback.
-    const liveSpeechQueued = Boolean(
+    // Dispatch the avatar speech request as soon as the reply is known,
+    // rather than returning it to the browser and waiting for a second
+    // client-side HTTP request. This is deliberately awaited rather than
+    // handed to after(): after()/waitUntil() in this OpenNext deployment is
+    // best-effort, not a durable queue, and under bursty concurrent
+    // requests (e.g. several always-on-mic turns arriving close together,
+    // each its own Worker invocation) its callback can be dropped before
+    // the outbound fetch to the GPU box ever completes — with no retry and
+    // nothing surfaced to the client, since the HTTP response had already
+    // gone out claiming success. /human on the GPU side only enqueues
+    // synthesis (fast ack, not full TTS+render), so awaiting it here costs
+    // a network round trip, not the full speech-generation time.
+    //
+    // liveSpeechQueued reports whether the dispatch actually reached the
+    // GPU, not merely whether it was attempted: the frontend's own
+    // useEffect (LiveTalkingAvatar.tsx) skips its client-side speak
+    // fallback whenever this is true, trusting the backend already
+    // handled it. Reporting true for a dispatch that silently failed
+    // disables that fallback for no reason — this is the same bug that
+    // let some replies never get spoken.
+    let liveSpeechQueued = false;
+    if (
       liveSessionId &&
       isLiveTalkingConfigured() &&
-      hasPaidAccess(user.subscriptionStatus, user.subscriptionRenewsAt),
-    );
-    if (liveSpeechQueued) {
-      after(async () => {
-        try {
-          await dispatchLiveSpeech({
-            userId: user.id,
-            personaId,
-            sessionId: liveSessionId,
-            text: replyContent,
-          });
-        } catch (liveError) {
-          // Text chat remains successful if the optional live service is down.
-          // The error is logged server-side without disclosing infrastructure
-          // details to the user.
-          console.error("Background live-speech dispatch failed", liveError);
-        }
-      });
+      hasPaidAccess(user.subscriptionStatus, user.subscriptionRenewsAt)
+    ) {
+      try {
+        await dispatchLiveSpeech({
+          userId: user.id,
+          personaId,
+          sessionId: liveSessionId,
+          text: replyContent,
+        });
+        liveSpeechQueued = true;
+      } catch (liveError) {
+        // Text chat remains successful if the optional live service is
+        // down; the client falls back to its own client-side dispatch.
+        console.error("Live-speech dispatch failed", liveError);
+      }
     }
 
     return NextResponse.json<SendMessageResponseBody>({
