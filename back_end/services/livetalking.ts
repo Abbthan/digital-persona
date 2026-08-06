@@ -106,9 +106,13 @@ export async function dispatchLiveSpeech({
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ sessionid: sessionId, text, type: "echo" }),
-    // The human endpoint only enqueues synthesis; do not let a transient
-    // network issue keep a Worker invocation alive indefinitely.
-    signal: AbortSignal.timeout(8_000),
+    // This is now awaited directly in the messages route's critical path
+    // (not handed to after()), so its timeout directly bounds how long an
+    // ordinary chat reply can be held up by a slow/degraded GPU box. /human
+    // only enqueues synthesis — a healthy GPU acks in well under a second —
+    // so 2.5s is generous for the normal case while keeping a bad GPU from
+    // dragging basic text chat down toward the 8s it used to allow.
+    signal: AbortSignal.timeout(2_500),
   });
   if (!response.ok) throw new Error(`Avatar server returned ${response.status}.`);
 }
