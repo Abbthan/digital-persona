@@ -7,6 +7,62 @@ import { deletePersonaGpuFiles } from "@/back_end/services/live-avatar";
 
 export type DeletePersonaResponseBody = { ok: true } | { ok: false; error: string };
 
+export type PersonaSettingsResponseBody =
+  | { ok: true; persona: { id: string; name: string; sttDialectPreference: string } }
+  | { ok: false; error: string };
+
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const db = getDb();
+  const user = await getCurrentUser().catch(() => null);
+  if (!user || !user.emailVerified) {
+    return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "You're not logged in." }, { status: 401 });
+  }
+
+  const { id: personaId } = await params;
+  const persona = await db.persona.findFirst({
+    where: { id: personaId, userId: user.id },
+    select: { id: true, name: true, sttDialectPreference: true },
+  });
+  if (!persona) {
+    return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "Persona not found." }, { status: 404 });
+  }
+  return NextResponse.json<PersonaSettingsResponseBody>({ ok: true, persona });
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const db = getDb();
+  const user = await getCurrentUser().catch(() => null);
+  if (!user || !user.emailVerified) {
+    return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "You're not logged in." }, { status: 401 });
+  }
+
+  const { id: personaId } = await params;
+  const body = await request.json().catch(() => null);
+  const sttDialectPreference = body?.sttDialectPreference === "wu" ? "wu" : body?.sttDialectPreference === "mandarin" ? "mandarin" : null;
+  if (!sttDialectPreference) {
+    return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "Invalid dialect preference." }, { status: 400 });
+  }
+
+  try {
+    const persona = await db.persona.findFirst({ where: { id: personaId, userId: user.id } });
+    if (!persona) {
+      return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "Persona not found." }, { status: 404 });
+    }
+    const updated = await db.persona.update({
+      where: { id: persona.id },
+      data: { sttDialectPreference },
+      select: { id: true, name: true, sttDialectPreference: true },
+    });
+    return NextResponse.json<PersonaSettingsResponseBody>({ ok: true, persona: updated });
+  } catch (error) {
+    console.error("PATCH /api/personas/[id] failed", error);
+    return NextResponse.json<PersonaSettingsResponseBody>(
+      { ok: false, error: "Couldn't update this persona. Please try again." },
+      { status: 500 },
+    );
+  }
+}
+
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const db = getDb();
   const user = await getCurrentUser().catch(() => null);

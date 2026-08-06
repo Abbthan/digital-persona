@@ -34,7 +34,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json<TranscribeResponseBody>({ ok: false, error: "No audio received." }, { status: 400 });
     }
 
-    const text = await transcribeVoiceClip(personaId, audio);
+    const dialectPreference = persona.sttDialectPreference === "wu" ? "wu" : "mandarin";
+    const text = await transcribeVoiceClip(personaId, audio, dialectPreference);
     if (text === null) {
       return NextResponse.json<TranscribeResponseBody>(
         { ok: false, error: "Couldn't reach the transcription server." },

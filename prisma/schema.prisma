@@ -107,6 +107,13 @@ model Persona {
   // Chosen once during creation. It will later select the live-avatar model,
   // but remains immutable after the persona exists.
   avatarStyle       String   @default("realistic")
+  // Explicit STT routing signal, unlike avatarStyle this stays editable
+  // after creation: "mandarin" skips the Wu-dialect model entirely (fast,
+  // deterministic), "wu" trusts it whenever it produces usable text. There
+  // is no reliable automatic Wu-vs-Mandarin classifier in the pipeline, so
+  // this sidesteps that unsolved problem with a signal the persona's owner
+  // already knows. See back_end/services/livetalking.ts transcribeVoiceClip.
+  sttDialectPreference String @default("mandarin")
   // Real per-persona training state on the standalone LiveTalking/CosyVoice
   // GPU services (back_end/services/livetalking.ts). liveAvatarId is the
   // MuseTalk avatar_id once training succeeds — null until then, so the

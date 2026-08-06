@@ -456,13 +456,18 @@ export async function checkFaceMatch(
  * persisted on the server — this runs once per spoken chat turn, not once
  * per training pass, so there's no file to keep around afterward.
  */
-export async function transcribeVoiceClip(personaId: string, audioBlob: File): Promise<string | null> {
+export async function transcribeVoiceClip(
+  personaId: string,
+  audioBlob: File,
+  dialectPreference: "mandarin" | "wu" = "mandarin",
+): Promise<string | null> {
   const serverUrl = liveTalkingServerUrl();
   const token = await systemToken(personaId);
   if (!serverUrl || !token) return null;
 
   const form = new FormData();
   form.set("audio", audioBlob, audioBlob.name);
+  form.set("dialect", dialectPreference);
 
   try {
     const response = await fetch(`${serverUrl}/api/voice/transcribe`, {

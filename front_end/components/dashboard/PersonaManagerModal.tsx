@@ -9,7 +9,8 @@ import { useModalController } from "@/front_end/state/modal-context";
 import { useLocale } from "@/front_end/state/locale-context";
 import type { DeleteAssetResponseBody } from "@/back_end/api/personas/[id]/assets/[assetId]/route";
 import type { ListAssetsResponseBody, PersonaAssetDTO } from "@/back_end/api/personas/[id]/assets/route";
-import type { DeletePersonaResponseBody } from "@/back_end/api/personas/[id]/route";
+import type { DeletePersonaResponseBody, PersonaSettingsResponseBody } from "@/back_end/api/personas/[id]/route";
+import { DialectSlider, type SttDialectPreference } from "@/front_end/components/persona-wizard/DialectSlider";
 import { FileUploadTile } from "@/front_end/components/persona-wizard/FileUploadTile";
 import { PassiveFacialScanTile } from "@/front_end/components/persona-wizard/PassiveFacialScanTile";
 import { PersonaAssetList } from "@/front_end/components/persona-wizard/PersonaAssetList";
@@ -49,6 +50,8 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
   const [personaPassword, setPersonaPassword] = useState("");
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   const [assetRefreshVersion, setAssetRefreshVersion] = useState(0);
+  const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("mandarin");
+  const [dialectSaving, setDialectSaving] = useState(false);
   const { user } = useAuth();
   const { locale } = useLocale();
   const { openModal } = useModalController();
@@ -79,6 +82,44 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
       cancelled = true;
     };
   }, [persona, assetRefreshVersion]);
+
+  useEffect(() => {
+    if (!persona) return;
+    let cancelled = false;
+    fetch(`/api/personas/${persona.id}`)
+      .then((response) => response.json() as Promise<PersonaSettingsResponseBody>)
+      .then((result) => {
+        if (!cancelled && result.ok) {
+          setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+        }
+      })
+      .catch(() => {
+        // Keeps the "mandarin" default — the slider still works, it just
+        // won't reflect a previously-saved "wu" preference until reopened.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [persona]);
+
+  async function handleDialectChange(next: SttDialectPreference) {
+    const previous = dialectPreference;
+    setDialectPreference(next);
+    setDialectSaving(true);
+    try {
+      const response = await fetch(`/api/personas/${personaId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sttDialectPreference: next }),
+      });
+      const result = (await response.json()) as PersonaSettingsResponseBody;
+      if (!result.ok) setDialectPreference(previous);
+    } catch {
+      setDialectPreference(previous);
+    } finally {
+      setDialectSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (confirmation?.kind !== "persona" || personaDeleteCountdown <= 0) return;
@@ -193,6 +234,15 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
             <p className="mt-xs font-text text-caption text-ink-muted-80">
               Add to this persona at any time. Your existing chat history and uploads are kept.
             </p>
+
+            <div className="mt-lg rounded-md border border-hairline bg-canvas-parchment p-sm">
+              <p className="font-text text-caption-strong text-ink">Speech language</p>
+              <p className="mt-xxs font-text text-fine-print text-ink-muted-48">
+                Chooses which speech-to-text engine handles this persona&apos;s Chinese conversations.
+              </p>
+              <DialectSlider value={dialectPreference} onChange={handleDialectChange} />
+              {dialectSaving && <p className="mt-xs font-text text-fine-print text-ink-muted-48">Saving…</p>}
+            </div>
 
             <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Media</p>
             <div className="mt-xs grid grid-cols-1 gap-sm sm:grid-cols-2">

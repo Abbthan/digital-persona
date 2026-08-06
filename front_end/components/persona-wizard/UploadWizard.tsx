@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Modal } from "@/front_end/components/ui";
 import { useAuth } from "@/front_end/state/auth-context";
 import { hasPaidAccess } from "@/back_end/services/limits";
 import { PERSONA_UPLOAD_LIMITS, planLimit } from "@/shared/persona-upload-limits";
 import { useModalController } from "@/front_end/state/modal-context";
+import type { PersonaSettingsResponseBody } from "@/back_end/api/personas/[id]/route";
+import { DialectSlider, type SttDialectPreference } from "./DialectSlider";
 import { FileUploadTile } from "./FileUploadTile";
 import { PassiveFacialScanTile } from "./PassiveFacialScanTile";
 import { PersonaAssetList } from "./PersonaAssetList";
@@ -30,6 +32,44 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assetRefreshVersion, setAssetRefreshVersion] = useState(0);
+  const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("mandarin");
+  const [dialectSaving, setDialectSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/personas/${personaId}`)
+      .then((response) => response.json() as Promise<PersonaSettingsResponseBody>)
+      .then((result) => {
+        if (!cancelled && result.ok) {
+          setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+        }
+      })
+      .catch(() => {
+        // Keeps the "mandarin" default.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [personaId]);
+
+  async function handleDialectChange(next: SttDialectPreference) {
+    const previous = dialectPreference;
+    setDialectPreference(next);
+    setDialectSaving(true);
+    try {
+      const response = await fetch(`/api/personas/${personaId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sttDialectPreference: next }),
+      });
+      const result = (await response.json()) as PersonaSettingsResponseBody;
+      if (!result.ok) setDialectPreference(previous);
+    } catch {
+      setDialectPreference(previous);
+    } finally {
+      setDialectSaving(false);
+    }
+  }
 
   function openPricing() {
     openModal("pricing", { pricingReason: "This upload type needs a subscription." });
@@ -91,6 +131,15 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
         <p className="font-text text-caption text-ink-muted-80">
           Upload as much or as little as you like — you can always add more later.
         </p>
+
+        <div className="mt-lg rounded-md border border-hairline bg-canvas-parchment p-sm">
+          <p className="font-text text-caption-strong text-ink">Speech language</p>
+          <p className="mt-xxs font-text text-fine-print text-ink-muted-48">
+            Chooses which speech-to-text engine handles this persona&apos;s Chinese conversations.
+          </p>
+          <DialectSlider value={dialectPreference} onChange={handleDialectChange} />
+          {dialectSaving && <p className="mt-xs font-text text-fine-print text-ink-muted-48">Saving…</p>}
+        </div>
 
         <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Media</p>
         <div className="mt-xs grid grid-cols-1 gap-sm sm:grid-cols-2">
