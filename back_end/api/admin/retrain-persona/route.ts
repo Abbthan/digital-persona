@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/back_end/services/db";
 import { startPersonaTraining } from "@/back_end/services/persona-training";
+import { getAvatarTrainingTask } from "@/back_end/services/livetalking";
 
 /**
  * Temporary, narrowly-scoped operator route: re-runs training for one named
@@ -21,6 +22,32 @@ export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const db = getDb();
+
+  // resolvePersonaTrainingState's own completed-task reconciliation only
+  // runs while status === "processing" (its normal upload-triggered path
+  // sets that first). This route calls startPersonaTraining() directly and
+  // never flips status, so it needs the same reconciliation done here
+  // explicitly once the GPU-side task is actually done.
+  if (request.nextUrl.searchParams.get("reconcile") === "1") {
+    const before = await db.persona.findUnique({ where: { id: PERSONA_ID }, select: { avatarTrainingTaskId: true } });
+    if (!before?.avatarTrainingTaskId) {
+      return NextResponse.json({ ok: false, error: "No avatarTrainingTaskId on record." }, { status: 400 });
+    }
+    const task = await getAvatarTrainingTask(PERSONA_ID, before.avatarTrainingTaskId);
+    if (!task) return NextResponse.json({ ok: true, reconciled: false, reason: "task not found (GPU process may have restarted)" });
+    if (task.status === "pending" || task.status === "processing" || task.status === "running") {
+      return NextResponse.json({ ok: true, reconciled: false, taskStatus: task.status, progress: task.progress });
+    }
+    const persona = await db.persona.update({
+      where: { id: PERSONA_ID },
+      data: task.status === "completed"
+        ? { liveAvatarId: `persona_${PERSONA_ID}`, avatarTrainingError: null }
+        : { avatarTrainingError: task.error_msg || "Avatar training failed.", liveAvatarId: null },
+      select: { id: true, status: true, liveAvatarId: true, avatarTrainingTaskId: true, avatarTrainingError: true },
+    });
+    return NextResponse.json({ ok: true, reconciled: true, taskStatus: task.status, persona });
+  }
+
   const persona = await db.persona.findUnique({
     where: { id: PERSONA_ID },
     select: { id: true, name: true, status: true, liveAvatarId: true, avatarTrainingTaskId: true, avatarTrainingError: true, voiceRefAssetId: true },
