@@ -155,7 +155,15 @@ export async function composePersonaPrompt(
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ persona_id: personaId, persona_name: personaName, query: query.slice(0, 2_000), top_k: Math.min(Math.max(topK, 1), 8) }),
-      signal: AbortSignal.timeout(8_000),
+      // Retrieval is best-effort grounding, not a required step — the
+      // caller already treats a null result as "no retrieved material"
+      // rather than a failure. getPersonaReply fires two of these in
+      // parallel and awaits both before it can call the model at all, so
+      // this timeout directly sets a floor under the whole reply's
+      // latency; 8s let one slow retrieval alone blow well past any
+      // reasonable reply-latency budget for a call whose own result is
+      // optional.
+      signal: AbortSignal.timeout(3_000),
     });
     const body = (await response.json()) as { ok: boolean; prompt: string; sources: ComposedPersonaPrompt["sources"] };
     if (!response.ok || !body.ok) return null;

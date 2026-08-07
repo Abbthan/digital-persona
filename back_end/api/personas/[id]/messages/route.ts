@@ -151,18 +151,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Persist both real turns after the visible response is returned. RAG
     // ingestion is intentionally outside the critical path: the current
     // turn is already in the model input, while a transient vector-service
-    // outage must not make chat unavailable.
+    // outage must not make chat unavailable. The metrics increment was
+    // previously awaited here too, on the request's critical path, despite
+    // already being best-effort (its own .catch() below never surfaces to
+    // the caller) — it bought nothing but latency, so it moves into the
+    // same background pass.
     after(async () => {
       await Promise.all([
         ingestConversationMessage(personaId, userMessage.id, "user", content),
         ingestConversationMessage(personaId, replyMessage.id, "persona", replyContent),
-      ].map((task) => task.catch((ragError) => {
-        console.error("Background conversation-memory ingestion failed", ragError);
+        incrementPlatformMetrics({ messagesExchanged: 2 }),
+      ].map((task) => task.catch((backgroundError) => {
+        console.error("Background post-reply task failed", backgroundError);
       })));
-    });
-
-    await incrementPlatformMetrics({ messagesExchanged: 2 }).catch((metricError) => {
-      console.error("Chat metric increment failed", metricError);
     });
 
     // Dispatch the avatar speech request as soon as the reply is known,
