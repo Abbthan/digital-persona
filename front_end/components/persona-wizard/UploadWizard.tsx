@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Modal } from "@/front_end/components/ui";
 import { useAuth } from "@/front_end/state/auth-context";
 import { hasPaidAccess } from "@/back_end/services/limits";
@@ -34,13 +34,17 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
   const [assetRefreshVersion, setAssetRefreshVersion] = useState(0);
   const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("mandarin");
   const [dialectSaving, setDialectSaving] = useState(false);
+  // See PersonaManagerModal.tsx's identical guard: a fast slider click can
+  // race the initial GET below, whose late response would otherwise
+  // overwrite the just-saved value with the pre-change one.
+  const dialectUserEditedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/personas/${personaId}`)
       .then((response) => response.json() as Promise<PersonaSettingsResponseBody>)
       .then((result) => {
-        if (!cancelled && result.ok) {
+        if (!cancelled && !dialectUserEditedRef.current && result.ok) {
           setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
         }
       })
@@ -53,6 +57,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
   }, [personaId]);
 
   async function handleDialectChange(next: SttDialectPreference) {
+    dialectUserEditedRef.current = true;
     const previous = dialectPreference;
     setDialectPreference(next);
     setDialectSaving(true);

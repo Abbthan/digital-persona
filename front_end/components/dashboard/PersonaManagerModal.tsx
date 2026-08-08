@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Modal } from "@/front_end/components/ui";
 import { useAuth } from "@/front_end/state/auth-context";
 import { hasPaidAccess } from "@/back_end/services/limits";
@@ -52,6 +52,13 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
   const [assetRefreshVersion, setAssetRefreshVersion] = useState(0);
   const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("mandarin");
   const [dialectSaving, setDialectSaving] = useState(false);
+  // The initial GET-on-open fetch below and a fast slider click can race:
+  // if the user changes the preference before that GET resolves, its
+  // response still carries the pre-change value and would otherwise
+  // overwrite the just-saved one once it lands — the slider "bounces back"
+  // even though the save itself succeeded. Once the user has touched the
+  // slider this session, that stale GET result is no longer trustworthy.
+  const dialectUserEditedRef = useRef(false);
   const { user } = useAuth();
   const { locale } = useLocale();
   const { openModal } = useModalController();
@@ -89,7 +96,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
     fetch(`/api/personas/${persona.id}`)
       .then((response) => response.json() as Promise<PersonaSettingsResponseBody>)
       .then((result) => {
-        if (!cancelled && result.ok) {
+        if (!cancelled && !dialectUserEditedRef.current && result.ok) {
           setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
         }
       })
@@ -103,6 +110,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
   }, [persona]);
 
   async function handleDialectChange(next: SttDialectPreference) {
+    dialectUserEditedRef.current = true;
     const previous = dialectPreference;
     setDialectPreference(next);
     setDialectSaving(true);
