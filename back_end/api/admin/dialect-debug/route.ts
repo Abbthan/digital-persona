@@ -17,21 +17,9 @@ export async function GET(request: NextRequest) {
   const log: Record<string, unknown> = {};
 
   try {
-    log.count = await db.persona.count();
-
-    log.findFirstById = await db.persona.findFirst({
-      where: { id: PERSONA_ID },
-      select: { id: true, name: true, userId: true },
-    });
-
-    log.findUniqueByIdWithIdSelected = await db.persona.findUnique({
-      where: { id: PERSONA_ID },
-      select: { id: true, sttDialectPreference: true },
-    });
-
-    log.findByName = await db.persona.findFirst({
-      where: { name: "ethan" },
-      select: { id: true, name: true, userId: true, sttDialectPreference: true },
+    log.allPersonas = await db.persona.findMany({
+      select: { id: true, name: true, userId: true, status: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
     });
 
     return NextResponse.json({ ok: true, log });
