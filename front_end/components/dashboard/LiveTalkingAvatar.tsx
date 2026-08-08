@@ -50,6 +50,15 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const sessionRef = useRef<{ sessionid: string } | null>(null);
   const spokenReplyIdsRef = useRef(new Set<string>());
+  // The TURN relay intermittently fails the very first connection attempt
+  // and succeeds immediately on a plain retry (observed in production: ICE
+  // goes connecting → failed once, then connecting → connected on the next
+  // try, no other change). One transparent auto-retry absorbs that without
+  // making the visitor click "Retry" themselves; a second failure in a row
+  // is treated as real and shown normally, so a genuinely broken network
+  // doesn't retry forever. Reset on persona change or a manual retry click,
+  // not on the auto-retry's own reconnect.
+  const autoRetryUsedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +164,12 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         } else if (pc.connectionState === "failed") {
           connected = false;
           releaseSession();
+          if (!autoRetryUsedRef.current) {
+            autoRetryUsedRef.current = true;
+            console.warn("[live-avatar] peer connection failed, auto-retrying once", { personaId });
+            setConnectAttempt((current) => current + 1);
+            return;
+          }
           console.error("[live-avatar] peer connection failed", { personaId });
           setStatus("error");
           setError("Lost the connection to the avatar server.");
@@ -251,7 +266,18 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
     };
   }, [personaId, connectAttempt, onSessionReady]);
 
-  const retry = useCallback(() => setConnectAttempt((current) => current + 1), []);
+  // Only the automatic single retry above should be silent — a manual
+  // retry click means the auto-retry already happened and failed again (or
+  // this is a fresh problem), so it should get its own auto-retry chance
+  // too rather than being permanently spent from one earlier failure.
+  useEffect(() => {
+    autoRetryUsedRef.current = false;
+  }, [personaId]);
+
+  const retry = useCallback(() => {
+    autoRetryUsedRef.current = false;
+    setConnectAttempt((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     const session = sessionRef.current;
