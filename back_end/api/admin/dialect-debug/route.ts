@@ -17,32 +17,22 @@ export async function GET(request: NextRequest) {
   const log: Record<string, unknown> = {};
 
   try {
-    const before = await db.persona.findUnique({
-      where: { id: PERSONA_ID },
-      select: { sttDialectPreference: true },
-    });
-    log.before = before;
+    log.count = await db.persona.count();
 
-    const updated = await db.persona.update({
+    log.findFirstById = await db.persona.findFirst({
       where: { id: PERSONA_ID },
-      data: { sttDialectPreference: "wu" },
-      select: { sttDialectPreference: true },
+      select: { id: true, name: true, userId: true },
     });
-    log.updateResult = updated;
 
-    const immediateRead = await db.persona.findUnique({
+    log.findUniqueByIdWithIdSelected = await db.persona.findUnique({
       where: { id: PERSONA_ID },
-      select: { sttDialectPreference: true },
+      select: { id: true, sttDialectPreference: true },
     });
-    log.immediateRead = immediateRead;
 
-    // Restore original value so this test doesn't leave a side effect.
-    const restored = await db.persona.update({
-      where: { id: PERSONA_ID },
-      data: { sttDialectPreference: before?.sttDialectPreference ?? "mandarin" },
-      select: { sttDialectPreference: true },
+    log.findByName = await db.persona.findFirst({
+      where: { name: "ethan" },
+      select: { id: true, name: true, userId: true, sttDialectPreference: true },
     });
-    log.restored = restored;
 
     return NextResponse.json({ ok: true, log });
   } catch (error) {
