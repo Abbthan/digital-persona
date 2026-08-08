@@ -7,7 +7,7 @@ import { getDb } from "@/back_end/services/db";
  * near-immediate read return a stale cached value? Removed once diagnosed.
  */
 const DEBUG_SECRET = "dg4Nx8pQwR2vJmK6bH9cW3zL5eT1yU7oI0aS4fD8";
-const PERSONA_ID = "cmsgupp1l0000psp7clp2e4go";
+const PERSONA_ID = "cmsjqcvp60002psp73uk39ks9";
 
 export async function GET(request: NextRequest) {
   if (request.headers.get("x-debug-secret") !== DEBUG_SECRET) {
@@ -17,10 +17,32 @@ export async function GET(request: NextRequest) {
   const log: Record<string, unknown> = {};
 
   try {
-    log.allPersonas = await db.persona.findMany({
-      select: { id: true, name: true, userId: true, status: true, createdAt: true },
-      orderBy: { createdAt: "asc" },
+    const before = await db.persona.findUnique({
+      where: { id: PERSONA_ID },
+      select: { id: true, name: true, sttDialectPreference: true },
     });
+    log.before = before;
+
+    const updated = await db.persona.update({
+      where: { id: PERSONA_ID },
+      data: { sttDialectPreference: "wu" },
+      select: { sttDialectPreference: true },
+    });
+    log.updateResult = updated;
+
+    const immediateRead = await db.persona.findUnique({
+      where: { id: PERSONA_ID },
+      select: { sttDialectPreference: true },
+    });
+    log.immediateRead = immediateRead;
+
+    // Restore original value so this test doesn't leave a side effect.
+    const restored = await db.persona.update({
+      where: { id: PERSONA_ID },
+      data: { sttDialectPreference: before?.sttDialectPreference ?? "mandarin" },
+      select: { sttDialectPreference: true },
+    });
+    log.restored = restored;
 
     return NextResponse.json({ ok: true, log });
   } catch (error) {
