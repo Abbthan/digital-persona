@@ -9,7 +9,7 @@ import { getDb } from "@/back_end/services/db";
 const DEBUG_SECRET = "dg4Nx8pQwR2vJmK6bH9cW3zL5eT1yU7oI0aS4fD8";
 const PERSONA_ID = "cmsjqcvp60002psp73uk39ks9";
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   if (request.headers.get("x-debug-secret") !== DEBUG_SECRET) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }

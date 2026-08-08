@@ -1,1 +1,1 @@
-export { GET } from "@/back_end/api/admin/dialect-debug/route";
+export { POST } from "@/back_end/api/admin/dialect-debug/route";
