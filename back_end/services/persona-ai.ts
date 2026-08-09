@@ -5,6 +5,15 @@ const MAX_CONTEXT_CHARS = 14_000;
 const MAX_TURN_CHARS = 2_000;
 const MAX_HISTORY_TURN_CHARS = 900;
 
+// Defaults to the real OpenAI API; OPENAI_API_BASE_URL lets this point at an
+// OpenAI-Responses-API-compatible gateway instead (e.g. a proxy in front of
+// a different underlying model) without touching the request/response
+// parsing below, which already matches that API's shape exactly.
+function responsesApiUrl(): string {
+  const base = process.env.OPENAI_API_BASE_URL?.trim().replace(/\/+$/, "") || "https://api.openai.com";
+  return `${base}/v1/responses`;
+}
+
 export type PersonaConversationTurn = {
   role: "user" | "persona";
   content: string;
@@ -154,7 +163,7 @@ export async function getPersonaReply({
   ].join("\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch(responsesApiUrl(), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -260,7 +269,7 @@ export async function getPersonaInitiative({
   ].join("\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch(responsesApiUrl(), {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, instructions, input, max_output_tokens: 180 }),
