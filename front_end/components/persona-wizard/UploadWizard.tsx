@@ -71,7 +71,12 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sttDialectPreference: next }),
       });
-      const result = (await response.json()) as PersonaSettingsResponseBody;
+      const result = await response.json().catch(() => null) as PersonaSettingsResponseBody | null;
+      if (!result) {
+        setDialectPreference(previous);
+        setDialectError(`Couldn't save the speech language (${response.status || "network error"}).`);
+        return;
+      }
       if (!response.ok || !result.ok) {
         setDialectPreference(previous);
         setDialectError(result.ok ? "Couldn't save the speech language." : result.error);

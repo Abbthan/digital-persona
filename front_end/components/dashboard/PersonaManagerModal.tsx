@@ -124,7 +124,14 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sttDialectPreference: next }),
       });
-      const result = (await response.json()) as PersonaSettingsResponseBody;
+      const result = await response.json().catch(() => null) as PersonaSettingsResponseBody | null;
+      if (!result) {
+        setDialectPreference(previous);
+        setDialectError(locale === "zh"
+          ? `无法保存语音语言（${response.status || "网络错误"}）。`
+          : `Couldn't save the speech language (${response.status || "network error"}).`);
+        return;
+      }
       if (!response.ok || !result.ok) {
         setDialectPreference(previous);
         setDialectError(result.ok

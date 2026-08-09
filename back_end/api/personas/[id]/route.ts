@@ -44,15 +44,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   try {
-    const persona = await db.persona.findFirst({ where: { id: personaId, userId: user.id } });
-    if (!persona) {
-      return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "Persona not found." }, { status: 404 });
-    }
-    const updated = await db.persona.update({
-      where: { id: persona.id },
+    // Keep this to one database round trip. The previous find-then-update
+    // sequence was needlessly expensive on the Worker and could be killed
+    // between queries, leaving the UI to receive a non-JSON platform error
+    // while the preference stayed unchanged.
+    const [updated] = await db.persona.updateManyAndReturn({
+      where: { id: personaId, userId: user.id },
       data: { sttDialectPreference },
       select: { id: true, name: true, sttDialectPreference: true },
     });
+    if (!updated) {
+      return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "Persona not found." }, { status: 404 });
+    }
     return NextResponse.json<PersonaSettingsResponseBody>({ ok: true, persona: updated });
   } catch (error) {
     console.error("PATCH /api/personas/[id] failed", error);
