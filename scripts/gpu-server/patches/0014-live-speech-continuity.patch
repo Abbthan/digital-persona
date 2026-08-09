@@ -1,0 +1,268 @@
+--- a/tts/cosyvoice.py
++++ b/tts/cosyvoice.py
+@@ -3,7 +3,7 @@
+ import requests
+ from threading import Thread, Lock
+ from typing import Iterator
+-from scipy.signal import resample_poly
++import soxr
+ 
+ from utils.logger import logger
+ from .base_tts import BaseTTS, State
+@@ -172,27 +172,50 @@
+         text,textevent = msg
+         first = True
+         produced_audio = False
++        # Preserve one resampling filter across the complete utterance.  The
++        # former code restarted scipy's FIR filter for every 40 ms HTTP
++        # packet, producing a discontinuity at every packet boundary that
++        # listeners heard as choppy/flickering speech.
++        resampler = soxr.ResampleStream(
++            24000, self.sample_rate, 1, dtype="float32", quality="HQ"
++        )
++        pending = np.empty(0, dtype=np.float32)
++        byte_remainder = b""
++
++        def push_samples(samples):
++            nonlocal first, pending
++            if samples is None or samples.size == 0:
++                return
++            pending = np.concatenate((pending, samples.astype(np.float32, copy=False)))
++            while pending.shape[0] >= self.chunk:
++                eventpoint = {}
++                if first:
++                    eventpoint = {'status':'start','text':text}
++                    first = False
++                eventpoint.update(**textevent)
++                self.parent.put_audio_frame(pending[:self.chunk], eventpoint)
++                pending = pending[self.chunk:]
++
+         for chunk in audio_stream:
+-            if chunk is not None and len(chunk)>0:          
++            if chunk is not None and len(chunk)>0:
+                 produced_audio = True
+-                stream = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32767
+-                # 24 kHz → 16 kHz is an exact 2:3 rational ratio.  resample_poly
+-                # is substantially lighter than resampy's generic converter and
+-                # no longer makes each 40 ms packet wait on a costly filter.
+-                stream = resample_poly(stream, up=2, down=3).astype(np.float32, copy=False)
+-                #byte_stream=BytesIO(buffer)
+-                #stream = self.__create_bytes_stream(byte_stream)
+-                streamlen = stream.shape[0]
+-                idx=0
+-                while streamlen >= self.chunk:
+-                    eventpoint={}
+-                    if first:
+-                        eventpoint={'status':'start','text':text}
+-                        first = False
+-                    eventpoint.update(**textevent) 
+-                    self.parent.put_audio_frame(stream[idx:idx+self.chunk],eventpoint)
+-                    streamlen -= self.chunk
+-                    idx += self.chunk
++                raw = byte_remainder + chunk
++                usable = len(raw) - (len(raw) % 2)
++                byte_remainder = raw[usable:]
++                if usable:
++                    stream = np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32) / 32767
++                    push_samples(resampler.resample_chunk(stream, last=False))
++
++        push_samples(resampler.resample_chunk(np.empty(0, dtype=np.float32), last=True))
++        if pending.shape[0] > 0:
++            padded = np.zeros(self.chunk, dtype=np.float32)
++            padded[:pending.shape[0]] = pending
++            eventpoint = {}
++            if first:
++                eventpoint = {'status':'start','text':text}
++                first = False
++            eventpoint.update(**textevent)
++            self.parent.put_audio_frame(padded, eventpoint)
+         eventpoint={'status':'end','text':text}
+         eventpoint.update(**textevent) 
+         self.parent.put_audio_frame(np.zeros(self.chunk,np.float32),eventpoint) 
+--- a/server/routes.py
++++ b/server/routes.py
+@@ -20,7 +20,8 @@
+ # ever enqueueing (and audibly playing) the same reply twice, regardless
+ # of which side's race actually caused the duplicate this time.
+ _RECENT_ECHO_DISPATCH_WINDOW_SECONDS = 5.0
+-_recent_echo_dispatches: dict[str, tuple[str, float]] = {}
++_RECENT_UTTERANCE_ID_WINDOW_SECONDS = 60.0
++_recent_echo_dispatches: dict[str, float] = {}
+ 
+ 
+ # ─── 路由工具函数 ─────────────────────────────────────────────────────────────────
+@@ -90,14 +91,24 @@
+         )
+         if message_type == 'echo':
+             text = params['text']
++            utterance_id = params.get('utterance_id')
++            if not isinstance(utterance_id, str) or not utterance_id or len(utterance_id) > 160:
++                utterance_id = None
+             text_hash = hashlib.sha256(text.encode('utf-8', errors='ignore')).hexdigest()
+             now = time.monotonic()
+-            previous = _recent_echo_dispatches.get(sessionid)
+-            if previous is not None and previous[0] == text_hash and now - previous[1] < _RECENT_ECHO_DISPATCH_WINDOW_SECONDS:
++            dedupe_key = f"{sessionid}:id:{utterance_id}" if utterance_id else f"{sessionid}:text:{text_hash}"
++            dedupe_window = _RECENT_UTTERANCE_ID_WINDOW_SECONDS if utterance_id else _RECENT_ECHO_DISPATCH_WINDOW_SECONDS
++            previous = _recent_echo_dispatches.get(dedupe_key)
++            if previous is not None and now - previous < dedupe_window:
+                 logger.info("Duplicate speech enqueue suppressed session=%s", sessionid)
+             else:
+-                _recent_echo_dispatches[sessionid] = (text_hash, now)
++                _recent_echo_dispatches[dedupe_key] = now
+                 avatar_session.put_msg_txt(text, datainfo)
++            if len(_recent_echo_dispatches) > 1024:
++                cutoff = now - _RECENT_UTTERANCE_ID_WINDOW_SECONDS
++                for key, timestamp in list(_recent_echo_dispatches.items()):
++                    if timestamp < cutoff:
++                        _recent_echo_dispatches.pop(key, None)
+         elif message_type == 'chat':
+             llm_response = request.app.get("llm_response")
+             if llm_response:
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -500,6 +500,11 @@
+         count = 0
+         counttime = 0
+         last_speaking = False
++        silence_batch_count = 0
++        # Keep the visual talking pipeline alive across one or two tiny
++        # synthesis gaps. At batch_size=4 this bridges at most ~320 ms,
++        # preventing an idle/talking hard switch between adjacent TTS chunks.
++        SPEAKING_HANGOVER_BATCHES = 2
+ 
+         # syncnet_T = 12  # 时间步
+         # weight_dtype = torch.float16  # 数据类型
+@@ -522,9 +527,18 @@
+                 audio_frames.append(audioframe)
+ 
+              # 检测状态变化
+-            current_speaking = not is_all_silence
++            raw_speaking = not is_all_silence
++            if raw_speaking:
++                silence_batch_count = 0
++                current_speaking = True
++            elif last_speaking and silence_batch_count < SPEAKING_HANGOVER_BATCHES:
++                silence_batch_count += 1
++                current_speaking = True
++            else:
++                silence_batch_count = 0
++                current_speaking = False
+ 
+-            if is_all_silence: #全为静音数据，只需要取fullimg，不需要推理
++            if not current_speaking: #全为静音数据，只需要取fullimg，不需要推理
+                 for i in range(self.batch_size):
+                     idx = mirror_index(length, index)
+                     self.res_frame_queue.put((None, audio_frames[i*2:i*2+2], idx))
+@@ -552,39 +566,20 @@
+         logger.info('baseavatar inference thread stop')
+ 
+     def process_frames(self,quit_event):
+-        # digital_persona: a pixel-blend crossfade was tried here first
+-        # (100ms alpha blend between the last idle frame and the first
+-        # talking frame) and rejected on review — blending two different
+-        # real photos together reads as ghosting/double-exposure, not
+-        # motion, especially on a face. This holds the idle loop a few
+-        # frames longer instead (bounded by MAX_TRANSITION_WAIT) until it
+-        # reaches whichever idle-loop frame genavatar.py's
+-        # find_best_idle_transition_frame() already found to most closely
+-        # match the talking clip's opening head position/scale, then cuts
+-        # there with no blending at all. The talking frames that arrive
+-        # during that short wait are buffered and flushed in order the
+-        # moment the cut happens, so nothing is skipped — speech is
+-        # delayed by at most MAX_TRANSITION_WAIT at its very start, not
+-        # desynced from its own video once it does start.
+-        # digital_persona: lowered from 0.15 to 0.05 per production
+-        # latency review — the pose-matched cut is only worth a small,
+-        # capped wait; 150ms was a bigger contributor to perceived
+-        # latency than its smoothness benefit justified.
+-        MAX_TRANSITION_WAIT = 0.05
+-        # Independent of the deadline above: whatever the actual cause,
+-        # never let the wait buffer itself grow past a couple of seconds
+-        # of frames.
+-        MAX_TRANSITION_BUFFER = 50
+-        IDLE_TRANSITION_AUDIOTYPE = 1
++        # The trained talking and passive-idle sources are visibly different
++        # even at their best matching poses, so a hard cut flashes. Blend the
++        # last emitted frame into the new state over 200 ms without buffering
++        # or changing audio timing.
++        TRANSITION_FRAMES = 5
+ 
+         _last_speaking = False
+-        _pending_transition = None  # None, or {'target': int, 'deadline': float, 'buffer': [(res_frame, audio_frames, idx), ...]}
++        _last_emitted_frame = None
++        _transition_from = None
++        _transition_remaining = 0
+ 
+         self.output.start()
+ 
+         def emit(combine_frame, audio_frames):
+-            cv2.putText(combine_frame, "LiveTalking", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (128,128,128), 1)
+-
+             # 使用统一输出接口推送视频帧
+             self.output.push_video_frame(combine_frame)
+             self.record_video_data(combine_frame)
+@@ -667,46 +662,31 @@
+             except queue.Empty:
+                 continue
+ 
+-            # 检测状态变化
+-            current_speaking = not (audio_frames[0].type!=0 and audio_frames[1].type!=0)
++            # Follow inference's visual hangover rather than recomputing the
++            # speaking state from raw audio types here.
++            current_speaking = res_frame is not None
+             if current_speaking != _last_speaking:
+                 logger.info(f"状态切换：{'说话' if _last_speaking else '静音'} → {'说话' if current_speaking else '静音'}")
++                if _last_emitted_frame is not None:
++                    _transition_from = _last_emitted_frame.copy()
++                    _transition_remaining = TRANSITION_FRAMES
+             _last_speaking = current_speaking
+ 
+-            if current_speaking and _pending_transition is None:
+-                target = self.custom_transition_frame.get(IDLE_TRANSITION_AUDIOTYPE)
+-                if target is not None and self.custom_img_cycle.get(IDLE_TRANSITION_AUDIOTYPE):
+-                    _pending_transition = {'target': target, 'deadline': time.time() + MAX_TRANSITION_WAIT, 'buffer': []}
+-
+-            forced_idle_for_transition = False
+-            if _pending_transition is not None:
+-                if not current_speaking:
+-                    # Went quiet again before ever cutting -- nothing left
+-                    # to transition to, drop the wait and stay idle.
+-                    _pending_transition = None
+-                else:
+-                    cycle = self.custom_img_cycle[IDLE_TRANSITION_AUDIOTYPE]
+-                    size = len(cycle)
+-                    raw_index = self.custom_index.get(IDLE_TRANSITION_AUDIOTYPE, 0)
+-                    idle_mirindex = mirror_index(size, raw_index) if size else None
+-                    reached = idle_mirindex is not None and idle_mirindex == _pending_transition['target']
+-                    timed_out = time.time() >= _pending_transition['deadline']
+-                    overflowing = len(_pending_transition['buffer']) >= MAX_TRANSITION_BUFFER
+-                    if reached or timed_out or overflowing:
+-                        for buffered_res_frame, buffered_audio_frames, buffered_idx in _pending_transition['buffer']:
+-                            emit(render_talking(buffered_res_frame, buffered_idx), buffered_audio_frames)
+-                        _pending_transition = None
+-                    else:
+-                        _pending_transition['buffer'].append((res_frame, audio_frames, idx))
+-                        forced_idle_for_transition = True
+-
+-            if forced_idle_for_transition:
+-                combine_frame = render_idle(IDLE_TRANSITION_AUDIOTYPE, idx)
+-            elif not current_speaking: #全为静音数据，只需要取fullimg
++            if not current_speaking: #全为静音数据，只需要取fullimg
+                 combine_frame = render_idle(audio_frames[0].type, idx)
+             else:
+                 combine_frame = render_talking(res_frame, idx)
+ 
++            if _transition_remaining > 0 and _transition_from is not None:
++                alpha = (TRANSITION_FRAMES - _transition_remaining + 1) / TRANSITION_FRAMES
++                combine_frame = cv2.addWeighted(
++                    _transition_from, 1.0 - alpha, combine_frame, alpha, 0.0
++                )
++                _transition_remaining -= 1
++                if _transition_remaining == 0:
++                    _transition_from = None
++            _last_emitted_frame = combine_frame.copy()
++
+             emit(combine_frame, audio_frames)
+ 
+     def render(self,quit_event):

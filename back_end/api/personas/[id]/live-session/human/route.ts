@@ -35,13 +35,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const body = await request.json().catch(() => null);
   const sessionId = typeof body?.sessionid === "string" ? body.sessionid.trim() : "";
+  const utteranceId = typeof body?.utteranceId === "string" && body.utteranceId.length <= 160
+    ? body.utteranceId.trim()
+    : "";
   const text = typeof body?.text === "string" ? body.text.trim() : "";
-  if (!sessionId || !text) {
-    return NextResponse.json({ ok: false, error: "A live-session id and message are required." }, { status: 400 });
+  if (!sessionId || !utteranceId || !text) {
+    return NextResponse.json(
+      { ok: false, error: "A live-session id, utterance id, and message are required." },
+      { status: 400 },
+    );
   }
 
   try {
-    await dispatchLiveSpeech({ userId: user.id, personaId, sessionId, text });
+    await dispatchLiveSpeech({ userId: user.id, personaId, sessionId, utteranceId, text });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false, error: "Couldn't reach the avatar server." }, { status: 502 });

@@ -1,0 +1,17 @@
+--- a/server/rtc_manager.py
++++ b/server/rtc_manager.py
+@@ -12,6 +12,14 @@
+ from aiohttp import web
+ from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceServer, RTCConfiguration
+ from aiortc.rtcrtpsender import RTCRtpSender
++from aiortc.codecs import h264 as aiortc_h264
++from aiortc.codecs import vpx as aiortc_vpx
++
++# aiortc defaults to 1 Mbps H.264 / 500 kbps VP8, which visibly blocks a
++# 960x720 face at 25 fps. Raise only the initial target; RTCP bandwidth
++# feedback can still reduce it automatically on a constrained connection.
++aiortc_h264.DEFAULT_BITRATE = 2_000_000
++aiortc_vpx.DEFAULT_BITRATE = 1_200_000
+ 
+ from utils.logger import logger
+ import os

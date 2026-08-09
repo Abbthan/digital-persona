@@ -34,17 +34,20 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
   const [assetRefreshVersion, setAssetRefreshVersion] = useState(0);
   const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("mandarin");
   const [dialectSaving, setDialectSaving] = useState(false);
+  const [dialectError, setDialectError] = useState<string | null>(null);
   // See PersonaManagerModal.tsx's identical guard: a fast slider click can
   // race the initial GET below, whose late response would otherwise
   // overwrite the just-saved value with the pre-change one.
   const dialectUserEditedRef = useRef(false);
 
   useEffect(() => {
+    dialectUserEditedRef.current = false;
     let cancelled = false;
     fetch(`/api/personas/${personaId}`)
       .then((response) => response.json() as Promise<PersonaSettingsResponseBody>)
       .then((result) => {
         if (!cancelled && !dialectUserEditedRef.current && result.ok) {
+          setDialectError(null);
           setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
         }
       })
@@ -61,6 +64,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
     const previous = dialectPreference;
     setDialectPreference(next);
     setDialectSaving(true);
+    setDialectError(null);
     try {
       const response = await fetch(`/api/personas/${personaId}`, {
         method: "PATCH",
@@ -68,9 +72,15 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
         body: JSON.stringify({ sttDialectPreference: next }),
       });
       const result = (await response.json()) as PersonaSettingsResponseBody;
-      if (!result.ok) setDialectPreference(previous);
+      if (!response.ok || !result.ok) {
+        setDialectPreference(previous);
+        setDialectError(result.ok ? "Couldn't save the speech language." : result.error);
+      } else {
+        setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+      }
     } catch {
       setDialectPreference(previous);
+      setDialectError("Couldn't save the speech language. Please try again.");
     } finally {
       setDialectSaving(false);
     }
@@ -144,6 +154,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
           </p>
           <DialectSlider value={dialectPreference} onChange={handleDialectChange} />
           {dialectSaving && <p className="mt-xs font-text text-fine-print text-ink-muted-48">Saving…</p>}
+          {dialectError && <p role="alert" className="mt-xs font-text text-fine-print text-red-500">{dialectError}</p>}
         </div>
 
         <p className="mt-lg font-text text-caption-strong text-ink-muted-48">Media</p>

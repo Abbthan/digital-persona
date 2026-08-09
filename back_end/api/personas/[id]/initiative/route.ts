@@ -10,8 +10,8 @@ import { ingestConversationMessage } from "@/back_end/services/persona-rag";
 import { isLiveTalkingConfigured } from "@/back_end/services/live-avatar";
 import { dispatchLiveSpeech } from "@/back_end/services/speech";
 
-const MIN_IDLE_MS = 8 * 60 * 1_000;
-const INITIATIVE_WINDOW_MS = 8 * 60 * 1_000;
+const MIN_IDLE_MS = 6 * 60 * 1_000;
+const INITIATIVE_WINDOW_MS = 6 * 60 * 1_000;
 
 export type PersonaInitiativeResponseBody =
   | { ok: true; message: { id: string; role: string; content: string; createdAt: string } | null; liveSpeechQueued: boolean }
@@ -26,12 +26,12 @@ function stableHash(value: string): number {
   return hash >>> 0;
 }
 
-// Three quiet windows out of four intentionally produce nothing. This makes
+// Two quiet windows out of three intentionally produce nothing. This makes
 // a persona feel considerate rather than like an alert system, while still
 // letting a grounded thought surface eventually during an open conversation.
 function initiativeIsDue(personaId: string, latestMessageId: string, now: number): boolean {
   const window = Math.floor(now / INITIATIVE_WINDOW_MS);
-  return stableHash(`${personaId}:${latestMessageId}:${window}`) % 4 === 0;
+  return stableHash(`${personaId}:${latestMessageId}:${window}`) % 3 === 0;
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -106,12 +106,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: { personaId, role: "persona", content },
       select: { id: true, role: true, content: true, createdAt: true },
     });
-    const liveSpeechQueued = Boolean(liveSessionId && isLiveTalkingConfigured() && hasPaidAccess(user.subscriptionStatus, user.subscriptionRenewsAt));
+    let liveSpeechQueued = false;
+    if (liveSessionId && isLiveTalkingConfigured() && hasPaidAccess(user.subscriptionStatus, user.subscriptionRenewsAt)) {
+      try {
+        await dispatchLiveSpeech({
+          userId: user.id,
+          personaId,
+          sessionId: liveSessionId,
+          utteranceId: message.id,
+          text: content,
+        });
+        liveSpeechQueued = true;
+      } catch (error) {
+        // The text opening is still useful if the optional avatar service is
+        // unavailable. Returning false preserves the browser fallback.
+        console.error("[persona-initiative] live speech dispatch failed", { personaId, error });
+      }
+    }
     after(async () => {
       await Promise.all([
         ingestConversationMessage(personaId, message.id, "persona", content),
         incrementPlatformMetrics({ messagesExchanged: 1 }),
-        ...(liveSpeechQueued ? [dispatchLiveSpeech({ userId: user.id, personaId, sessionId: liveSessionId, text: content })] : []),
       ].map((task) => task.catch((error) => console.error("[persona-initiative] background task failed", { personaId, error }))));
     });
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import { useLocale } from "@/front_end/state/locale-context";
 
 const DIALECT_OPTIONS = ["mandarin", "wu"] as const;
 export type SttDialectPreference = (typeof DIALECT_OPTIONS)[number];
@@ -23,6 +24,7 @@ export function DialectSlider({
   const [segmentWidth, setSegmentWidth] = useState(0);
   const x = useMotionValue(0);
   const reduceMotion = useReducedMotion();
+  const { locale } = useLocale();
   const activeIndex = DIALECT_OPTIONS.indexOf(value);
 
   useEffect(() => {
@@ -76,7 +78,9 @@ export function DialectSlider({
           onClick={() => snapTo(index)}
           className={`relative z-10 flex-1 py-xs text-center font-text text-caption-strong transition-colors duration-150 ${value === dialect ? "pointer-events-none text-ink" : "text-ink-muted-48"}`}
         >
-          {dialect === "mandarin" ? "Mandarin" : "Wu Dialect"}
+          {dialect === "mandarin"
+            ? (locale === "zh" ? "普通话" : "Mandarin")
+            : (locale === "zh" ? "吴语" : "Wu Dialect")}
         </button>
       ))}
     </div>

@@ -293,7 +293,12 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
     fetch(`/api/personas/${personaId}/live-session/human`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionid: session.sessionid, text: latestReply.content, type: "echo" }),
+      body: JSON.stringify({
+        sessionid: session.sessionid,
+        utteranceId: latestReply.id,
+        text: latestReply.content,
+        type: "echo",
+      }),
     }).catch(() => {
       // Non-fatal — the reply is already shown as a text bubble either way.
     });
@@ -301,7 +306,11 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
 
   return (
     <div className={`relative flex w-full flex-shrink-0 items-center justify-center overflow-hidden bg-surface-tile-1 ${className ?? "h-48 border-b border-hairline"}`}>
-      <video ref={videoRef} autoPlay playsInline muted={false} className="h-full w-full object-cover" />
+      {/* Audio is rendered by the dedicated audio element below. Keeping the
+          video element muted prevents the same WebRTC audio track from being
+          played twice with a slight scheduling offset (audible as echo and
+          choppiness). */}
+      <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
       <audio ref={audioRef} autoPlay />
       {status !== "connected" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-xs bg-surface-tile-1">

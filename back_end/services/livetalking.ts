@@ -91,11 +91,14 @@ export async function dispatchLiveSpeech({
   userId,
   personaId,
   sessionId,
+  utteranceId,
   text,
 }: {
   userId: string;
   personaId: string;
   sessionId: string;
+  /** Stable chat-message id used by the GPU gateway for idempotency. */
+  utteranceId: string;
   text: string;
 }): Promise<void> {
   const serverUrl = liveTalkingServerUrl();
@@ -105,7 +108,12 @@ export async function dispatchLiveSpeech({
   const response = await fetch(`${serverUrl}/human`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ sessionid: sessionId, text, type: "echo" }),
+    body: JSON.stringify({
+      sessionid: sessionId,
+      utterance_id: utteranceId,
+      text,
+      type: "echo",
+    }),
     // This is now awaited directly in the messages route's critical path
     // (not handed to after()), so its timeout directly bounds how long an
     // ordinary chat reply can be held up by a slow/degraded GPU box. /human

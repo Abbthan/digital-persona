@@ -197,6 +197,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           userId: user.id,
           personaId,
           sessionId: liveSessionId,
+          utteranceId: replyMessage.id,
           text: replyContent,
         });
         liveSpeechQueued = true;

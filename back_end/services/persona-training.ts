@@ -5,6 +5,7 @@ import {
   submitAvatarTrainingJob,
 } from "@/back_end/services/live-avatar";
 import { saveVoiceReference } from "@/back_end/services/speech";
+import { ingestConversationMessage } from "@/back_end/services/persona-rag";
 import { isDedicatedFacialVideoSource, PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 
 export type PersonaTrainingState = {
@@ -232,6 +233,25 @@ export async function prepareVoiceReference(db: PrismaClient, personaId: string)
         where: { id: personaId },
         data: { voiceRefAssetId: voiceAsset.id, voiceRefTranscript: transcript },
       });
+      if (transcript?.trim()) {
+        // The same transcript CosyVoice uses to clone pronunciation is also
+        // useful grounded evidence of vocabulary, cadence, names, dialect,
+        // and facts spoken in the recording. Store it under the real asset id
+        // with role=source so deleting that upload removes this memory exactly
+        // and the extractor never mistakes it for a chat turn authored now.
+        const ingested = await ingestConversationMessage(
+          personaId,
+          voiceAsset.id,
+          "source",
+          transcript,
+        );
+        if (!ingested) {
+          console.warn("[persona-training] voice transcript memory ingestion skipped", {
+            personaId,
+            assetId: voiceAsset.id,
+          });
+        }
+      }
     } else {
       await db.persona.update({
         where: { id: personaId },
