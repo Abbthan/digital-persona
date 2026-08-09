@@ -1,0 +1,177 @@
+--- a/runtime/python/fastapi/server.py
++++ b/runtime/python/fastapi/server.py
+@@ -19,6 +19,7 @@
+ import threading
+ import hashlib
+ import json
++import re
+ import urllib.error
+ import urllib.request
+ from collections import OrderedDict
+@@ -68,6 +69,64 @@
+             yield tts_audio[offset:offset + chunk_bytes]
+ 
+ 
++_SENTENCE_UNIT_RE = re.compile(
++    r'[^.!?\u3002\uff01\uff1f\uff1b;]+[.!?\u3002\uff01\uff1f\uff1b;]+(?:["\u201d\u2019\']+)?'
++    r'|[^.!?\u3002\uff01\uff1f\uff1b;]+$'
++)
++
++
++def _split_live_tts_text(tts_text: str) -> list[str]:
++    """Bound each inference pass while preserving the full utterance."""
++    text = tts_text.strip()
++    if not text:
++        return []
++
++    # Chinese speech is denser per character than English. Both limits retain
++    # enough context for natural prosody while staying below the observed
++    # early-EOS range of a single live generation.
++    has_cjk = bool(re.search(r'[\u3400-\u9fff]', text))
++    max_chars = 70 if has_cjk else 100
++    joiner = "" if has_cjk else " "
++    units = [match.group(0).strip() for match in _SENTENCE_UNIT_RE.finditer(text)]
++    if not units:
++        return [text]
++
++    segments: list[str] = []
++    current = ""
++    for unit_index, unit in enumerate(units):
++        is_final_unit = unit_index == len(units) - 1
++        candidate = f"{current}{joiner}{unit}" if current else unit
++        # A final question/conclusion is the part most often lost to an early
++        # model EOS. Give it an independent generation boundary even when the
++        # preceding sentence group would still fit below max_chars.
++        if current and (is_final_unit or len(candidate) > max_chars):
++            segments.append(current)
++            current = unit
++        else:
++            current = candidate
++    if current:
++        segments.append(current)
++
++    # A single sentence may still be unusually long. Prefer clause boundaries,
++    # then whitespace, without deleting or rewriting any words.
++    bounded: list[str] = []
++    for segment in segments:
++        while len(segment) > max_chars:
++            cut = max(
++                segment.rfind(mark, 0, max_chars + 1)
++                for mark in (", ", "; ", "\uff0c", "\uff1b", " ")
++            )
++            if cut < max_chars // 2:
++                cut = max_chars
++            elif segment[cut:cut + 2] in (", ", "; "):
++                cut += 1
++            bounded.append(segment[:cut].strip())
++            segment = segment[cut:].strip()
++        if segment:
++            bounded.append(segment)
++    return bounded
++
++
+ def _voice_cache_key(prompt_text: str, tmp_path: str) -> str:
+     digest = hashlib.sha256(prompt_text.encode("utf-8"))
+     with open(tmp_path, "rb") as reference:
+@@ -116,14 +175,18 @@
+     try:
+         with _synthesis_lock:
+             _cache_voice(prompt_text, tmp_path, voice_key)
+-            model_output = cosyvoice.inference_zero_shot(
+-                tts_text,
+-                prompt_text,
+-                tmp_path,
+-                zero_shot_spk_id=voice_key,
+-                stream=True,
+-            )
+-            yield from generate_data(model_output)
++            segments = _split_live_tts_text(tts_text)
++            logging.info("live tts segments=%d chars=%d", len(segments), len(tts_text))
++            for index, segment in enumerate(segments, start=1):
++                logging.info("live tts segment=%d/%d chars=%d", index, len(segments), len(segment))
++                model_output = cosyvoice.inference_zero_shot(
++                    segment,
++                    prompt_text,
++                    tmp_path,
++                    zero_shot_spk_id=voice_key,
++                    stream=True,
++                )
++                yield from generate_data(model_output)
+     finally:
+         try:
+             os.unlink(tmp_path)
+@@ -136,13 +199,17 @@
+     try:
+         with _synthesis_lock:
+             _cache_voice(prompt_text, tmp_path, voice_key)
+-            model_output = cosyvoice.inference_cross_lingual(
+-                tts_text,
+-                tmp_path,
+-                zero_shot_spk_id=voice_key,
+-                stream=True,
+-            )
+-            yield from generate_data(model_output)
++            segments = _split_live_tts_text(tts_text)
++            logging.info("live tts segments=%d chars=%d", len(segments), len(tts_text))
++            for index, segment in enumerate(segments, start=1):
++                logging.info("live tts segment=%d/%d chars=%d", index, len(segments), len(segment))
++                model_output = cosyvoice.inference_cross_lingual(
++                    segment,
++                    tmp_path,
++                    zero_shot_spk_id=voice_key,
++                    stream=True,
++                )
++                yield from generate_data(model_output)
+     finally:
+         try:
+             os.unlink(tmp_path)
+@@ -158,26 +225,34 @@
+ def stream_cached_zero_shot(tts_text: str, prompt_text: str, voice_key: str):
+     """Synthesize from an already prepared speaker embedding without re-uploading audio."""
+     with _synthesis_lock:
+-        model_output = cosyvoice.inference_zero_shot(
+-            tts_text,
+-            prompt_text,
+-            None,
+-            zero_shot_spk_id=voice_key,
+-            stream=True,
+-        )
+-        yield from generate_data(model_output)
++        segments = _split_live_tts_text(tts_text)
++        logging.info("live tts segments=%d chars=%d", len(segments), len(tts_text))
++        for index, segment in enumerate(segments, start=1):
++            logging.info("live tts segment=%d/%d chars=%d", index, len(segments), len(segment))
++            model_output = cosyvoice.inference_zero_shot(
++                segment,
++                prompt_text,
++                None,
++                zero_shot_spk_id=voice_key,
++                stream=True,
++            )
++            yield from generate_data(model_output)
+ 
+ 
+ def stream_cached_cross_lingual(tts_text: str, voice_key: str):
+     """Cross-lingual counterpart of stream_cached_zero_shot."""
+     with _synthesis_lock:
+-        model_output = cosyvoice.inference_cross_lingual(
+-            tts_text,
+-            None,
+-            zero_shot_spk_id=voice_key,
+-            stream=True,
+-        )
+-        yield from generate_data(model_output)
++        segments = _split_live_tts_text(tts_text)
++        logging.info("live tts segments=%d chars=%d", len(segments), len(tts_text))
++        for index, segment in enumerate(segments, start=1):
++            logging.info("live tts segment=%d/%d chars=%d", index, len(segments), len(segment))
++            model_output = cosyvoice.inference_cross_lingual(
++                segment,
++                None,
++                zero_shot_spk_id=voice_key,
++                stream=True,
++            )
++            yield from generate_data(model_output)
+ 
+ 
+ @app.get("/inference_sft")

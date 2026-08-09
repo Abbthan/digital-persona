@@ -190,6 +190,15 @@ CosyVoice's own server (separate process, separate venv — pinned
 `torch==2.5.1`): `python runtime/python/fastapi/server.py --port 9880`,
 auto-downloads `iic/CosyVoice2-0.5B` via ModelScope on first run.
 
+The live cloned-speech path uses CosyVoice's cross-lingual decoder for both
+English and Chinese. Production testing found that same-language zero-shot
+could end a successful HTTP stream before the final sentence, whereas the
+cross-lingual decoder retained the same warmed speaker embedding and produced
+the complete utterance in both languages. The server also splits long replies
+into bounded sentence groups inside one streaming response, with the final
+sentence synthesized independently so a closing question cannot be silently
+lost to an early model EOS.
+
 ## Known limitations
 
 - **Cartoon avatar style isn't built.** Only the Realistic/MuseTalk pipeline
@@ -264,10 +273,18 @@ assumed:
   ffmpeg-loop fallback (also `completed`). Server restarted serving that
   exact generated avatar — HTTP 200, stable process, GPU memory consistent
   with FP16 (not FP32).
-- **CosyVoice zero-shot cloning**: real synthesized audio came back from
-  `/inference_zero_shot` (5.72s, 24kHz, mean volume -24.5dB / max -4.0dB —
-  genuine speech, not silence) after fixing the upstream tensor/path bug
-  above.
+- **CosyVoice complete cloned speech**: the exact 151-character reply that had
+  previously lost its final question was replayed with Ethan Ma's real voice
+  reference. The production decoder returned 8.72 seconds of 24kHz audio and
+  Faster-Whisper recovered the complete final question, “What made you share
+  that with me?”. A subsequent real browser message produced one `start` and
+  one `end` event for the complete 214-character reply, with no duplicate
+  dispatch.
+- **MuseTalk A/V timing**: audio and video now use one media epoch and queue
+  pressure is measured in buffered seconds rather than incomparable packet
+  counts (20ms audio versus 40ms video). A focused assertion confirmed that
+  four video packets and eight audio packets both represent 160ms and resolve
+  to an identical playback deadline (0.000000000s difference).
 - **Voice reference + transcription**: `/api/voice/reference` saves a real
   WAV at the deterministic path and returns a real (if modest-accuracy)
   transcript.

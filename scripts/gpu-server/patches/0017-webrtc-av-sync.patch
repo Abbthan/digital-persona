@@ -1,0 +1,165 @@
+--- a/server/webrtc.py
++++ b/server/webrtc.py
+@@ -75,7 +75,7 @@
+                 #self._timestamp = (time.time()-self._start) * VIDEO_CLOCK_RATE
+                 self._timestamp += int(VIDEO_PTIME * VIDEO_CLOCK_RATE)
+                 self.current_frame_count += 1
+-                wait = self._start + self.current_frame_count * VIDEO_PTIME - time.time()
++                wait = self._player.media_deadline(self.kind, self.current_frame_count) - time.time()
+                 # wait = self.timelist[0] + len(self.timelist)*VIDEO_PTIME - time.time()               
+                 if wait>0:
+                     await asyncio.sleep(wait)
+@@ -92,12 +92,12 @@
+                     # forgives the backlog once (this frame plays a beat
+                     # late, not instantly) and resumes normal real-time
+                     # pacing from here, rather than compounding the debt.
+-                    self._start = time.time() - self.current_frame_count * VIDEO_PTIME
++                    self._player.reanchor_media_clock(self.kind, self.current_frame_count)
+                 # if len(self.timelist)>=100:
+                 #     self.timelist.pop(0)
+                 # self.timelist.append(time.time())
+             else:
+-                self._start = time.time()
++                self._start = self._player.ensure_media_start()
+                 self._timestamp = 0
+                 self.timelist.append(self._start)
+                 mylogger.info('video start:%f',self._start)
+@@ -107,7 +107,7 @@
+                 #self._timestamp = (time.time()-self._start) * SAMPLE_RATE
+                 self._timestamp += int(AUDIO_PTIME * SAMPLE_RATE)
+                 self.current_frame_count += 1
+-                wait = self._start + self.current_frame_count * AUDIO_PTIME - time.time()
++                wait = self._player.media_deadline(self.kind, self.current_frame_count) - time.time()
+                 # wait = self.timelist[0] + len(self.timelist)*AUDIO_PTIME - time.time()
+                 if wait>0:
+                     await asyncio.sleep(wait)
+@@ -115,13 +115,13 @@
+                     # digital_persona: same re-anchoring as the video
+                     # branch above, for the same reason -- see that
+                     # comment.
+-                    self._start = time.time() - self.current_frame_count * AUDIO_PTIME
++                    self._player.reanchor_media_clock(self.kind, self.current_frame_count)
+                 # if len(self.timelist)>=200:
+                 #     self.timelist.pop(0)
+                 #     self.timelist.pop(0)
+                 # self.timelist.append(time.time())
+             else:
+-                self._start = time.time()
++                self._start = self._player.ensure_media_start()
+                 self._timestamp = 0
+                 self.timelist.append(self._start)
+                 mylogger.info('audio start:%f',self._start)
+@@ -202,6 +202,8 @@
+         self.__audio = PlayerStreamTrack(self, kind="audio")
+         self.__video = PlayerStreamTrack(self, kind="video")
+ 
++        self.__media_start: Optional[float] = None
++        self.__media_clock_lock = threading.Lock()
+         self.__container = avatar_session
+         if hasattr(self.__container, 'output'):
+             self.__container.output._player = self
+@@ -234,7 +236,35 @@
+     # throttle account for whichever queue is actually further behind.
+     def get_audio_buffer_size(self) -> int:
+         return self.__audio._queue.qsize()
++
++    def get_buffered_duration(self) -> float:
++        """Return real buffered media time, not incomparable packet counts."""
++        return max(
++            self.__video._queue.qsize() * VIDEO_PTIME,
++            self.__audio._queue.qsize() * AUDIO_PTIME,
++        )
++
++    def ensure_media_start(self) -> float:
++        with self.__media_clock_lock:
++            if self.__media_start is None:
++                self.__media_start = time.time()
++            return self.__media_start
+ 
++    def media_deadline(self, kind: str, frame_count: int) -> float:
++        frame_duration = VIDEO_PTIME if kind == "video" else AUDIO_PTIME
++        return self.ensure_media_start() + frame_count * frame_duration
++
++    def reanchor_media_clock(self, kind: str, frame_count: int) -> None:
++        """Forgive accumulated delay without letting A/V clocks diverge."""
++        frame_duration = VIDEO_PTIME if kind == "video" else AUDIO_PTIME
++        with self.__media_clock_lock:
++            requested_start = time.time() - frame_count * frame_duration
++            if self.__media_start is None or requested_start > self.__media_start:
++                self.__media_start = requested_start
++                mylogger.info(
++                    'shared media clock reanchored by %s frame=%d', kind, frame_count
++                )
++
+     def notify(self,eventpoint):
+         if self.__container is not None:
+             self.__container.notify(eventpoint)
+--- a/streamout/webrtc.py
++++ b/streamout/webrtc.py
+@@ -44,5 +44,10 @@
+             return self._player.get_audio_buffer_size()
+         return 0
+ 
++    def get_buffered_duration(self) -> float:
++        if self._player and hasattr(self._player, 'get_buffered_duration'):
++            return self._player.get_buffered_duration()
++        return 0.0
++
+     def stop(self) -> None:
+         pass
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -501,10 +501,10 @@
+         counttime = 0
+         last_speaking = False
+         silence_batch_count = 0
+-        # Keep the visual talking pipeline alive across one or two tiny
+-        # synthesis gaps. At batch_size=4 this bridges at most ~320 ms,
++        # Keep the visual talking pipeline alive across one tiny synthesis
++        # gap. At batch_size=4 this bridges at most ~160 ms,
+         # preventing an idle/talking hard switch between adjacent TTS chunks.
+-        SPEAKING_HANGOVER_BATCHES = 2
++        SPEAKING_HANGOVER_BATCHES = 1
+ 
+         # syncnet_T = 12  # 时间步
+         # weight_dtype = torch.float16  # 数据类型
+@@ -611,11 +611,9 @@
+             # its own latency. Throttling on whichever queue is more
+             # backlogged keeps both tracks similarly shallow instead of
+             # only ever capping one of them.
+-            video_buffer_size = self.output.get_buffer_size() if hasattr(self.output, 'get_buffer_size') else 0
+-            audio_buffer_size = self.output.get_audio_buffer_size() if hasattr(self.output, 'get_audio_buffer_size') else 0
+-            buffer_size = max(video_buffer_size, audio_buffer_size)
+-            if buffer_size > 4:
+-                time.sleep(0.01 + (buffer_size - 4) * 0.005)
++            buffered_seconds = self.output.get_buffered_duration() if hasattr(self.output, 'get_buffered_duration') else 0.0
++            if buffered_seconds > 0.16:
++                time.sleep(0.01 + (buffered_seconds - 0.16) * 0.125)
+ 
+             for audio_frame in audio_frames:
+                 #frame,type,eventpoint = audio_frame
+@@ -711,18 +709,15 @@
+             t = time.perf_counter()
+             self.asr.run_step()
+ 
+-            video_buffer_size = self.output.get_buffer_size() if hasattr(self.output, 'get_buffer_size') else 0
+-            audio_buffer_size = self.output.get_audio_buffer_size() if hasattr(self.output, 'get_audio_buffer_size') else 0
+-            buffer_size = max(video_buffer_size, audio_buffer_size)
++            buffered_seconds = self.output.get_buffered_duration() if hasattr(self.output, 'get_buffered_duration') else 0.0
+             # Keep only a tiny real-time cushion.  The former proportional
+             # sleep allowed 20+ queued video frames (roughly 0.8 seconds), so
+             # lips could visibly trail the audio even though both frames came
+-            # from the same synthesis request. Now also considers the audio
+-            # queue (see process_frames' matching throttle) so this doesn't
+-            # keep pacing ASR intake off video alone while audio backs up
+-            # unchecked.
+-            if buffer_size >= 4:
+-                logger.debug('throttle qsize=%d (video=%d audio=%d)', buffer_size, video_buffer_size, audio_buffer_size)
++            # from the same synthesis request. Queue depth is expressed as
++            # actual media time because one video packet is 40 ms while one
++            # audio packet is 20 ms.
++            if buffered_seconds >= 0.16:
++                logger.debug('throttle buffered_seconds=%.3f', buffered_seconds)
+                 time.sleep(0.01)
+         logger.info('baseavatar render thread stop')
+ 

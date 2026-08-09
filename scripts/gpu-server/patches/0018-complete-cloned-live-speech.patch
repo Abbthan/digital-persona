@@ -1,0 +1,25 @@
+--- a/tts/cosyvoice.py
++++ b/tts/cosyvoice.py
+@@ -102,15 +102,13 @@
+ 
+     def cosy_voice(self, text, reffile, reftext, server_url) -> Iterator[bytes]:
+         start = time.perf_counter()
+-        # Use zero-shot when reference and reply share a language, retaining
+-        # both the supplied voice identity and its natural prosody.  CosyVoice
+-        # has a dedicated cross-lingual mode for a Chinese voice speaking
+-        # English (or the reverse); feeding those requests through zero-shot
+-        # is what made one of the two languages sound noticeably unnatural.
+-        target_is_chinese = self._contains_chinese(text)
+-        reference_is_chinese = self._contains_chinese(reftext or "")
+-        use_cross_lingual = bool(reftext) and target_is_chinese != reference_is_chinese
+-        endpoint = "inference_cross_lingual" if use_cross_lingual else "inference_zero_shot"
++        # Use the cloned cross-lingual decoder for every live reply. Production
++        # waveform tests showed that same-language zero-shot can return HTTP
++        # 200 while ending early (or compressing a final question into
++        # unintelligible audio). The cross-lingual decoder uses the same warmed
++        # speaker embedding and reproduced the complete English and Chinese
++        # utterances, including the previously missing final sentence.
++        endpoint = "inference_cross_lingual"
+         # Pass prompt_text to both endpoints.  Cross-lingual synthesis removes
+         # the textual prompt from its language model, but the server uses it
+         # once to cache the uploaded reference voice's speaker features.
