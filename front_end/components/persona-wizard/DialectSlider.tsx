@@ -1,14 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
 import { useLocale } from "@/front_end/state/locale-context";
+import { STT_LANGUAGE_PREFERENCES, type SttLanguagePreference } from "@/shared/stt-language";
 
-const DIALECT_OPTIONS = ["mandarin", "wu"] as const;
-export type SttDialectPreference = (typeof DIALECT_OPTIONS)[number];
+export type SttDialectPreference = SttLanguagePreference;
 
 const TRACK_PADDING = 3;
 const SPRING = { stiffness: 500, damping: 32 };
+
+function nearestIndex(rawIndex: number, startIndex: number, maxIndex: number): number {
+  const clamped = Math.min(maxIndex, Math.max(0, rawIndex));
+  const lower = Math.floor(clamped);
+  const upper = Math.ceil(clamped);
+  if (lower === upper) return lower;
+  const fraction = clamped - lower;
+  if (fraction === 0.5) return startIndex <= lower ? upper : lower;
+  return fraction < 0.5 ? lower : upper;
+}
 
 // Same Apple-style momentum-segmented pattern as NameModal's PersonaStyleSlider
 // (Realistic/Cartoon) — drag with rubber-banding, spring-snaps to the nearest
@@ -25,11 +35,12 @@ export function DialectSlider({
   const x = useMotionValue(0);
   const reduceMotion = useReducedMotion();
   const { locale } = useLocale();
-  const activeIndex = DIALECT_OPTIONS.indexOf(value);
+  const activeIndex = STT_LANGUAGE_PREFERENCES.indexOf(value);
+  const dragStartIndexRef = useRef(activeIndex);
 
   useEffect(() => {
     const measure = () => {
-      if (trackRef.current) setSegmentWidth((trackRef.current.offsetWidth - TRACK_PADDING * 2) / DIALECT_OPTIONS.length);
+      if (trackRef.current) setSegmentWidth((trackRef.current.offsetWidth - TRACK_PADDING * 2) / STT_LANGUAGE_PREFERENCES.length);
     };
     measure();
     window.addEventListener("resize", measure);
@@ -46,31 +57,38 @@ export function DialectSlider({
     return () => controls.stop();
   }, [activeIndex, reduceMotion, segmentWidth, x]);
 
-  function snapTo(index: number) {
-    const nextIndex = Math.max(0, Math.min(DIALECT_OPTIONS.length - 1, index));
+  const snapTo = useCallback((index: number) => {
+    const nextIndex = Math.max(0, Math.min(STT_LANGUAGE_PREFERENCES.length - 1, index));
     if (nextIndex === activeIndex || !segmentWidth) {
       if (segmentWidth) {
         animate(x, activeIndex * segmentWidth, { type: reduceMotion ? "tween" : "spring", duration: reduceMotion ? 0 : undefined, ...SPRING });
       }
       return;
     }
-    onChange(DIALECT_OPTIONS[nextIndex]);
-  }
+    onChange(STT_LANGUAGE_PREFERENCES[nextIndex]);
+  }, [activeIndex, onChange, reduceMotion, segmentWidth, x]);
 
   return (
     <div ref={trackRef} className="relative mt-sm flex w-full select-none overflow-hidden rounded-pill bg-canvas p-[3px]">
       {segmentWidth > 0 && (
         <motion.div
           drag="x"
-          dragConstraints={{ left: 0, right: segmentWidth }}
+          dragConstraints={{ left: 0, right: segmentWidth * (STT_LANGUAGE_PREFERENCES.length - 1) }}
           dragElastic={0}
           dragMomentum={false}
-          onDragEnd={() => snapTo(Math.round(x.get() / segmentWidth))}
+          onDragStart={() => {
+            dragStartIndexRef.current = Math.round(x.get() / segmentWidth);
+          }}
+          onDragEnd={() => snapTo(nearestIndex(
+            x.get() / segmentWidth,
+            dragStartIndexRef.current,
+            STT_LANGUAGE_PREFERENCES.length - 1,
+          ))}
           style={{ x, width: segmentWidth }}
           className="absolute top-[3px] bottom-[3px] left-[3px] cursor-grab touch-none rounded-pill bg-surface-chip-translucent shadow-dock active:cursor-grabbing"
         />
       )}
-      {DIALECT_OPTIONS.map((dialect, index) => (
+      {STT_LANGUAGE_PREFERENCES.map((dialect, index) => (
         <button
           key={dialect}
           type="button"
@@ -80,7 +98,9 @@ export function DialectSlider({
         >
           {dialect === "mandarin"
             ? (locale === "zh" ? "普通话" : "Mandarin")
-            : (locale === "zh" ? "吴语" : "Wu Dialect")}
+            : dialect === "wu"
+              ? (locale === "zh" ? "吴语" : "Wu Dialect")
+              : (locale === "zh" ? "英语" : "English")}
         </button>
       ))}
     </div>

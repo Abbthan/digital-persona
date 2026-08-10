@@ -4,6 +4,7 @@ import { getDb } from "@/back_end/services/db";
 import { deletePersonaMedia } from "@/back_end/services/storage";
 import { deleteAllRagData } from "@/back_end/services/persona-rag";
 import { deletePersonaGpuFiles } from "@/back_end/services/live-avatar";
+import { isSttLanguagePreference } from "@/shared/stt-language";
 
 export type DeletePersonaResponseBody = { ok: true } | { ok: false; error: string };
 
@@ -38,7 +39,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id: personaId } = await params;
   const body = await request.json().catch(() => null);
-  const sttDialectPreference = body?.sttDialectPreference === "wu" ? "wu" : body?.sttDialectPreference === "mandarin" ? "mandarin" : null;
+  const sttDialectPreference = isSttLanguagePreference(body?.sttDialectPreference)
+    ? body.sttDialectPreference
+    : null;
   if (!sttDialectPreference) {
     return NextResponse.json<PersonaSettingsResponseBody>({ ok: false, error: "Invalid dialect preference." }, { status: 400 });
   }

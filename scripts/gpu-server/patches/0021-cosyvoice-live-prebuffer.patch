@@ -1,0 +1,34 @@
+--- a/tts/cosyvoice.py
++++ b/tts/cosyvoice.py
+@@ -179,12 +179,18 @@
+         )
+         pending = np.empty(0, dtype=np.float32)
+         byte_remainder = b""
++        prebuffer_samples = int(self.sample_rate * 0.48)
++        prebuffering = True
+ 
+-        def push_samples(samples):
+-            nonlocal first, pending
+-            if samples is None or samples.size == 0:
++        def push_samples(samples, force=False):
++            nonlocal first, pending, prebuffering
++            if samples is not None and samples.size > 0:
++                pending = np.concatenate((pending, samples.astype(np.float32, copy=False)))
++            elif not force:
+                 return
+-            pending = np.concatenate((pending, samples.astype(np.float32, copy=False)))
++            if prebuffering and not force and pending.shape[0] < prebuffer_samples:
++                return
++            prebuffering = False
+             while pending.shape[0] >= self.chunk:
+                 eventpoint = {}
+                 if first:
+@@ -204,7 +210,7 @@
+                     stream = np.frombuffer(raw[:usable], dtype=np.int16).astype(np.float32) / 32767
+                     push_samples(resampler.resample_chunk(stream, last=False))
+ 
+-        push_samples(resampler.resample_chunk(np.empty(0, dtype=np.float32), last=True))
++        push_samples(resampler.resample_chunk(np.empty(0, dtype=np.float32), last=True), force=True)
+         if pending.shape[0] > 0:
+             padded = np.zeros(self.chunk, dtype=np.float32)
+             padded[:pending.shape[0]] = pending

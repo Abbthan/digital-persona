@@ -26,6 +26,19 @@ current host launches the extractor with the already-validated LiveTalking
 CUDA environment to avoid duplicating 6.1 GB while `/data` is 97% utilized;
 the extractor remains a separate process, GPU assignment and tmux service.
 
+Standalone JPG, JPEG and PNG persona uploads are OCR'd as bilingual source
+documents. `pytesseract` is only the Python adapter, so every new GPU host
+must also install the system engine and language packs before starting this
+service:
+
+```sh
+apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
+```
+
+PDF and DOCX embedded-image OCR uses the same `chi_sim+eng` configuration.
+If these packages are absent, native document text still works but image OCR
+will correctly return no chunks rather than inventing content.
+
 The existing always-on microphone path already converts a finalized utterance
 into a normal chat message. Its background message ingestion feeds this service
 without creating a separate voice-message workflow. Graph-backed follow-up

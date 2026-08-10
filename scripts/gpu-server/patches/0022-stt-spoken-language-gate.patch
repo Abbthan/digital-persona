@@ -1,0 +1,36 @@
+--- a/runtime/python/fastapi/server.py
++++ b/runtime/python/fastapi/server.py
+@@ -22,9 +22,11 @@
+ import whisper as openai_whisper
+ try:
+     from faster_whisper import WhisperModel
++    from faster_whisper.audio import decode_audio
+ except ImportError:  # Kept only as a recovery path while upgrading an existing box.
+     WhisperModel = None
++    decode_audio = None
+ import logging
+ logging.getLogger('matplotlib').setLevel(logging.WARNING)
+ from fastapi import FastAPI, UploadFile, Form, File, HTTPException
+@@ -389,6 +391,24 @@
+                 compute_type,
+             )
+ 
++        if language and decode_audio is not None:
++            detected_language, probability, _ = _faster_whisper_model.detect_language(
++                audio=decode_audio(audio_path),
++                vad_filter=True,
++                language_detection_segments=2,
++                language_detection_threshold=0.5,
++            )
++            accepted = {"en"} if language == "en" else {"zh", "yue"}
++            if detected_language not in accepted and probability >= 0.55:
++                return {
++                    "text": "",
++                    "engine": "faster-whisper-language-filter",
++                    "language": detected_language,
++                    "language_probability": float(probability),
++                }
++
+         segments, info = _faster_whisper_model.transcribe(
+             audio_path,
+             beam_size=5,

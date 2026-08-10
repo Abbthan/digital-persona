@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/back_end/services/auth";
 import { getDb } from "@/back_end/services/db";
 import { isLiveTalkingConfigured } from "@/back_end/services/live-avatar";
 import { transcribeVoiceClip } from "@/back_end/services/speech";
+import { normalizeSttLanguagePreference } from "@/shared/stt-language";
 
 export type TranscribeResponseBody = { ok: true; text: string } | { ok: false; error: string };
 
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json<TranscribeResponseBody>({ ok: false, error: "No audio received." }, { status: 400 });
     }
 
-    const dialectPreference = persona.sttDialectPreference === "wu" ? "wu" : "mandarin";
+    const dialectPreference = normalizeSttLanguagePreference(persona.sttDialectPreference);
     const text = await transcribeVoiceClip(personaId, audio, dialectPreference);
     if (text === null) {
       return NextResponse.json<TranscribeResponseBody>(

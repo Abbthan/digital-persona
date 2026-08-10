@@ -6,8 +6,10 @@ import { useAuth } from "@/front_end/state/auth-context";
 import { hasPaidAccess } from "@/back_end/services/limits";
 import { PERSONA_UPLOAD_LIMITS, planLimit } from "@/shared/persona-upload-limits";
 import { useModalController } from "@/front_end/state/modal-context";
+import { useLocale } from "@/front_end/state/locale-context";
 import type { PersonaSettingsResponseBody } from "@/back_end/api/personas/[id]/route";
 import { DialectSlider, type SttDialectPreference } from "./DialectSlider";
+import { normalizeSttLanguagePreference } from "@/shared/stt-language";
 import { FileUploadTile } from "./FileUploadTile";
 import { PassiveFacialScanTile } from "./PassiveFacialScanTile";
 import { PersonaAssetList } from "./PersonaAssetList";
@@ -24,6 +26,7 @@ type UploadWizardProps = {
 
 export function UploadWizard({ open, personaId, personaName, onFinish, onCancel }: UploadWizardProps) {
   const { user } = useAuth();
+  const { locale } = useLocale();
   const { openModal } = useModalController();
   const isPaid = hasPaidAccess(user?.subscription.status, user?.subscription.currentPeriodEnd);
   const photoLimit = planLimit(PERSONA_UPLOAD_LIMITS.image, isPaid);
@@ -48,7 +51,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
       .then((result) => {
         if (!cancelled && !dialectUserEditedRef.current && result.ok) {
           setDialectError(null);
-          setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+          setDialectPreference(normalizeSttLanguagePreference(result.persona.sttDialectPreference));
         }
       })
       .catch(() => {
@@ -74,18 +77,22 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
       const result = await response.json().catch(() => null) as PersonaSettingsResponseBody | null;
       if (!result) {
         setDialectPreference(previous);
-        setDialectError(`Couldn't save the speech language (${response.status || "network error"}).`);
+        setDialectError(locale === "zh"
+          ? `无法保存语音语言（${response.status || "网络错误"}）。`
+          : `Couldn't save the speech language (${response.status || "network error"}).`);
         return;
       }
       if (!response.ok || !result.ok) {
         setDialectPreference(previous);
-        setDialectError(result.ok ? "Couldn't save the speech language." : result.error);
+        setDialectError(result.ok
+          ? (locale === "zh" ? "无法保存语音语言。" : "Couldn't save the speech language.")
+          : result.error);
       } else {
-        setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+        setDialectPreference(normalizeSttLanguagePreference(result.persona.sttDialectPreference));
       }
     } catch {
       setDialectPreference(previous);
-      setDialectError("Couldn't save the speech language. Please try again.");
+      setDialectError(locale === "zh" ? "无法保存语音语言，请重试。" : "Couldn't save the speech language. Please try again.");
     } finally {
       setDialectSaving(false);
     }
@@ -155,7 +162,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
         <div className="mt-lg rounded-md border border-hairline bg-canvas-parchment p-sm">
           <p className="font-text text-caption-strong text-ink">Speech language</p>
           <p className="mt-xxs font-text text-fine-print text-ink-muted-48">
-            Chooses which speech-to-text engine handles this persona&apos;s Chinese conversations.
+            Chooses the language and recognition model used for live speech.
           </p>
           <DialectSlider value={dialectPreference} onChange={handleDialectChange} />
           {dialectSaving && <p className="mt-xs font-text text-fine-print text-ink-muted-48">Saving…</p>}

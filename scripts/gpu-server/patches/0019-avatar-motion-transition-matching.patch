@@ -1,0 +1,74 @@
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -97,6 +97,7 @@
+         # talking clip's opening pose, used to cut from idle to talking at
+         # a visually-minimal jump instead of an arbitrary point.
+         self.custom_transition_frame = {}
++        self.custom_transition_signatures = {}
+         self.msgqueues = []
+         # self.custom_opt = {}
+         self.__loadcustom()
+@@ -250,6 +251,10 @@
+             self.custom_transition_frame[item['audiotype']] = self.__load_transition_frame(
+                 item['imgpath'], len(self.custom_img_cycle[item['audiotype']])
+             )
++            self.custom_transition_signatures[item['audiotype']] = [
++                self.__transition_signature(frame)
++                for frame in self.custom_img_cycle[item['audiotype']]
++            ]
+             if item.get('audiopath'):
+                 self.custom_audio_cycle[item['audiotype']], sample_rate = sf.read(item['audiopath'], dtype='float32')
+                 self.custom_audio_index[item['audiotype']] = 0
+@@ -305,6 +310,27 @@
+                 return max(0, start - 1)
+         return mirindex
+ 
++    @staticmethod
++    def __transition_signature(frame):
++        """Return a compact face-centred descriptor for fast pose matching."""
++        height, width = frame.shape[:2]
++        crop = frame[
++            int(height * 0.08):max(int(height * 0.90), 1),
++            int(width * 0.18):max(int(width * 0.82), 1),
++        ]
++        if crop.size == 0:
++            crop = frame
++        gray = cv2.equalizeHist(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY))
++        return cv2.resize(gray, (32, 40), interpolation=cv2.INTER_AREA).astype(np.float32)
++
++    def __nearest_idle_transition_frame(self, audiotype, talking_frame):
++        signatures = self.custom_transition_signatures.get(audiotype)
++        if not signatures or talking_frame is None:
++            return self.custom_transition_frame.get(audiotype)
++        reference = self.__transition_signature(talking_frame)
++        scores = [float(np.mean(np.abs(signature - reference))) for signature in signatures]
++        return int(np.argmin(scores)) if scores else self.custom_transition_frame.get(audiotype)
++
+     def __load_blink_ranges(self, imgpath, frame_count):
+         """Reads the optional blink_ranges.json a matching
+         enhance_and_extract.py run saved alongside this image sequence
+@@ -544,8 +570,8 @@
+                     self.res_frame_queue.put((None, audio_frames[i*2:i*2+2], idx))
+                     index = index + 1
+             else:
+-                if current_speaking and not last_speaking and self.custom_index.get(1) is not None: #从静音到说话切换,并且有自定义静态视频
+-                    index = 0
++                # Keep traversing the recorded talking loop instead of
++                # replaying only its first few frames for every short reply.
+                 t = time.perf_counter()
+ 
+                 pred = self.inference_batch(index, audiofeat_batch)
+@@ -665,6 +691,13 @@
+             current_speaking = res_frame is not None
+             if current_speaking != _last_speaking:
+                 logger.info(f"状态切换：{'说话' if _last_speaking else '静音'} → {'说话' if current_speaking else '静音'}")
++                if _last_speaking and not current_speaking:
++                    audiotype = audio_frames[0].type
++                    if self.custom_index.get(audiotype) is not None:
++                        matched_index = self.__nearest_idle_transition_frame(audiotype, _last_emitted_frame)
++                        if matched_index is not None:
++                            self.custom_index[audiotype] = matched_index
++                            logger.info("matched talking→idle transition to frame %s (audiotype=%s)", matched_index, audiotype)
+                 if _last_emitted_frame is not None:
+                     _transition_from = _last_emitted_frame.copy()
+                     _transition_remaining = TRANSITION_FRAMES

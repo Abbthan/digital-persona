@@ -351,10 +351,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
     }
 
-    // Documents feed the persona's RAG memory, not the avatar/voice
+    // Documents and OCR-visible text in photos feed the persona's RAG memory,
+    // not the avatar/voice
     // pipeline above — a failed ingest here shouldn't fail the upload
     // itself, so this is deliberately unchecked.
-    if (type === "text") {
+    if (type === "text" || type === "image") {
       const assetName = file.name;
       console.info("[persona-rag] queued after upload", { personaId, assetId: asset.id });
       after(async () => {

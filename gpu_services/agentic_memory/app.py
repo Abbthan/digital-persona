@@ -188,7 +188,8 @@ async def _retrieve(persona_id: str, query: str, top_k: int) -> dict[str, Any]:
     for row in rows:
         metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
         kind, source_type = str(metadata.get("memory_kind", "raw")), str(metadata.get("source_type", ""))
-        target = ("style" if kind in {"catchphrase", "dialect_term"} else
+        target = ("style" if kind in {"catchphrase", "dialect_term"} or
+                            (kind == "fact" and metadata.get("fact_type") == "style") else
                   "facts" if kind == "fact" else
                   "conversation" if source_type == "conversation" else
                   "document_images" if source_type == "document_image" else

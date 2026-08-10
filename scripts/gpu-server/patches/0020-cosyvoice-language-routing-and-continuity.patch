@@ -1,0 +1,67 @@
+--- a/runtime/python/fastapi/server.py
++++ b/runtime/python/fastapi/server.py
+@@ -199,7 +199,7 @@
+     try:
+         with _synthesis_lock:
+             _cache_voice(prompt_text, tmp_path, voice_key)
+-            segments = _split_live_tts_text(tts_text)
++            segments = [tts_text.strip()] if tts_text.strip() else []
+             logging.info("live tts segments=%d chars=%d", len(segments), len(tts_text))
+             for index, segment in enumerate(segments, start=1):
+                 logging.info("live tts segment=%d/%d chars=%d", index, len(segments), len(segment))
+@@ -242,7 +242,7 @@
+ def stream_cached_cross_lingual(tts_text: str, voice_key: str):
+     """Cross-lingual counterpart of stream_cached_zero_shot."""
+     with _synthesis_lock:
+-        segments = _split_live_tts_text(tts_text)
++        segments = [tts_text.strip()] if tts_text.strip() else []
+         logging.info("live tts segments=%d chars=%d", len(segments), len(tts_text))
+         for index, segment in enumerate(segments, start=1):
+             logging.info("live tts segment=%d/%d chars=%d", index, len(segments), len(segment))
+@@ -359,7 +359,7 @@
+ _whisper_model = None
+ 
+ 
+-def transcribe_with_faster_whisper(audio_path: str) -> dict | None:
++def transcribe_with_faster_whisper(audio_path: str, language: str | None = None) -> dict | None:
+     global _faster_whisper_model, _faster_whisper_unavailable
+     if WhisperModel is None or _faster_whisper_unavailable:
+         return None
+@@ -393,6 +393,7 @@
+             audio_path,
+             beam_size=5,
+             vad_filter=True,
++            language=language,
+         )
+         return {
+             "text": " ".join(
+@@ -456,17 +457,27 @@
+         shutil.copyfileobj(audio.file, tmp)
+         tmp_path = tmp.name
+     try:
+-        fallback = transcribe_with_faster_whisper(tmp_path)
++        dialect = dialect if dialect in {"mandarin", "wu", "english"} else "mandarin"
++        requested_language = "en" if dialect == "english" else "zh"
++        fallback = transcribe_with_faster_whisper(tmp_path, requested_language)
+         if fallback is None:
+             if _whisper_model is None:
+                 _whisper_model = openai_whisper.load_model("base")
+-            result = _whisper_model.transcribe(tmp_path)
++            result = _whisper_model.transcribe(tmp_path, language=requested_language)
+             fallback = {
+                 "text": result["text"].strip(),
+                 "engine": "openai-whisper-fallback",
+                 "language": result.get("language"),
+                 "language_probability": None,
+             }
++
++        text = str(fallback.get("text") or "").strip()
++        cjk_count = len(re.findall(r"[\u3400-\u9fff]", text))
++        letter_count = len(re.findall(r"[A-Za-z]", text))
++        if dialect == "english" and cjk_count > max(1, letter_count // 5):
++            return {**fallback, "text": "", "filtered_for": "english"}
++        if dialect in {"mandarin", "wu"} and letter_count > 2 and cjk_count == 0:
++            return {**fallback, "text": "", "filtered_for": dialect}
+ 
+         # "mandarin" is an explicit per-persona signal that this speaker
+         # doesn't speak Wu — skip the extra service call and its GPU cost

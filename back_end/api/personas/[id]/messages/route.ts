@@ -134,14 +134,33 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (message.role === "persona") recentMessages.push({ role: "persona", content: message.content });
     }
 
-    const replyContent = maskInappropriateLanguage(await getPersonaReply({
+    const replyResult = await getPersonaReply({
       personaId,
       personaName: persona.name,
       message: content,
       locale: requestedLocale,
       recentMessages,
       voiceReferenceTranscript: persona.voiceRefTranscript,
-    }));
+    });
+    if (!replyResult.ok) {
+      // A provider outage is not something the persona said. Remove the
+      // provisional user row so retrying does not duplicate an unanswered
+      // turn, and surface a real service error instead of permanently saving
+      // and speaking a canned failure sentence in the persona's voice.
+      await db.chatMessage.delete({ where: { id: userMessage.id } }).catch((cleanupError) => {
+        console.error("Couldn't remove unanswered chat turn", cleanupError);
+      });
+      return NextResponse.json<SendMessageResponseBody>(
+        {
+          ok: false,
+          error: requestedLocale === "zh"
+            ? "回复服务暂时不可用，请稍后重试。"
+            : "The reply service is temporarily unavailable. Please try again.",
+        },
+        { status: 503 },
+      );
+    }
+    const replyContent = maskInappropriateLanguage(replyResult.text);
 
     const replyMessage = await db.chatMessage.create({
       data: { personaId, role: "persona", content: replyContent },

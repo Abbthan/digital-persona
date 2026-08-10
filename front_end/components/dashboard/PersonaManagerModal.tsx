@@ -11,6 +11,7 @@ import type { DeleteAssetResponseBody } from "@/back_end/api/personas/[id]/asset
 import type { ListAssetsResponseBody, PersonaAssetDTO } from "@/back_end/api/personas/[id]/assets/route";
 import type { DeletePersonaResponseBody, PersonaSettingsResponseBody } from "@/back_end/api/personas/[id]/route";
 import { DialectSlider, type SttDialectPreference } from "@/front_end/components/persona-wizard/DialectSlider";
+import { normalizeSttLanguagePreference } from "@/shared/stt-language";
 import { FileUploadTile } from "@/front_end/components/persona-wizard/FileUploadTile";
 import { PassiveFacialScanTile } from "@/front_end/components/persona-wizard/PassiveFacialScanTile";
 import { PersonaAssetList } from "@/front_end/components/persona-wizard/PersonaAssetList";
@@ -100,7 +101,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
       .then((result) => {
         if (!cancelled && !dialectUserEditedRef.current && result.ok) {
           setDialectError(null);
-          setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+          setDialectPreference(normalizeSttLanguagePreference(result.persona.sttDialectPreference));
         }
       })
       .catch(() => {
@@ -138,7 +139,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
           ? (locale === "zh" ? "无法保存语音语言。" : "Couldn't save the speech language.")
           : result.error);
       } else {
-        setDialectPreference(result.persona.sttDialectPreference === "wu" ? "wu" : "mandarin");
+        setDialectPreference(normalizeSttLanguagePreference(result.persona.sttDialectPreference));
       }
     } catch {
       setDialectPreference(previous);
@@ -265,7 +266,7 @@ export function PersonaManagerModal({ persona, onClose, onPersonaDeleted }: Pers
             <div className="mt-lg rounded-md border border-hairline bg-canvas-parchment p-sm">
               <p className="font-text text-caption-strong text-ink">Speech language</p>
               <p className="mt-xxs font-text text-fine-print text-ink-muted-48">
-                Chooses which speech-to-text engine handles this persona&apos;s Chinese conversations.
+                Chooses the language and recognition model used for live speech.
               </p>
               <DialectSlider value={dialectPreference} onChange={handleDialectChange} />
               {dialectSaving && <p className="mt-xs font-text text-fine-print text-ink-muted-48">Saving…</p>}

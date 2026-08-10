@@ -102,6 +102,14 @@ def extract_document(filename: str, raw_bytes: bytes) -> ExtractedDoc:
     extension = os.path.splitext(filename)[1].lower()
     if extension == ".txt":
         return ExtractedDoc(chunk_text(raw_bytes.decode("utf-8", errors="replace")), [])
+    if extension in {".jpg", ".jpeg", ".png"}:
+        # Standalone photo uploads can contain handwriting, captions,
+        # screenshots or signs that reveal both facts and the owner's actual
+        # wording. Keep OCR in document_images so retrieval can distinguish
+        # visual text from native document text while treating both as
+        # owner-authorized persona evidence.
+        extracted = _ocr_image_bytes(raw_bytes)
+        return ExtractedDoc([], chunk_text(extracted))
     if extension not in {".pdf", ".docx"}:
         raise ValueError(f"Unsupported document type: {extension}")
     with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temporary:

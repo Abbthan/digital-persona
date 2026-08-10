@@ -9,7 +9,7 @@ document-ingestion and deletion callers do not need a second API.
 ## Data flow
 
 ```text
-finalized chat turn / document text / media transcript
+finalized chat turn / document text / image OCR / media transcript
                          |
                          v
        local bilingual Qwen structured extraction
@@ -46,8 +46,11 @@ same persona boundary. No model weights, secrets, graph/vector data or private
 memory are committed to Git.
 
 The extractor records supported facts, people/entities, relations, timeline
-events, locations, recurring phrases and dialect terms, and stated emotional
-attitudes in Chinese, English or mixed-language material. It also proposes
+events, locations, recurring phrases, sentence-shape/style evidence and
+dialect terms, and stated emotional attitudes in Chinese, English or
+mixed-language material. Standalone JPG/PNG uploads and images embedded in
+PDF/DOCX files are OCR'd with the same bilingual `chi_sim+eng` engine before
+extraction. It also proposes
 bounded follow-up questions for gaps that matter. Source text is treated as
 untrusted data, sensitive attributes are not inferred, and transient comments
 are not promoted to identity facts.

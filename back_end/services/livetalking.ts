@@ -1,3 +1,5 @@
+import type { SttLanguagePreference } from "@/shared/stt-language";
+
 // Bridges this app's backend to the standalone LiveTalking WebRTC avatar
 // server running on a separate GPU box. The browser talks to that server
 // directly for the actual video/audio stream — Cloudflare Workers can't
@@ -467,7 +469,7 @@ export async function checkFaceMatch(
 export async function transcribeVoiceClip(
   personaId: string,
   audioBlob: File,
-  dialectPreference: "mandarin" | "wu" = "mandarin",
+  dialectPreference: SttLanguagePreference = "mandarin",
 ): Promise<string | null> {
   const serverUrl = liveTalkingServerUrl();
   const token = await systemToken(personaId);
