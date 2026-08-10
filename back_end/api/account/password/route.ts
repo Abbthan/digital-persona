@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hashPassword, validatePassword, verifyPassword } from "@/back_end/services/auth";
+import { validatePassword } from "@/back_end/services/auth";
+import { hashPassword, verifyPassword } from "@/back_end/services/password";
 import { getDb } from "@/back_end/services/db";
 import { isEmailDeliveryConfigured, sendPasswordChangeConfirmationEmail } from "@/back_end/services/email";
 import { getSession } from "@/back_end/services/session";

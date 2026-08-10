@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyPassword } from "@/back_end/services/auth";
+import { verifyPassword } from "@/back_end/services/password";
 import { getDb } from "@/back_end/services/db";
 import { getSession } from "@/back_end/services/session";
 

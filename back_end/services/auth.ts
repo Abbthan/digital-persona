@@ -1,19 +1,8 @@
-import bcrypt from "bcryptjs";
 import { getDb } from "@/back_end/services/db";
 import { getSession } from "@/back_end/services/session";
 import { isThemePreference, type ThemePreference } from "@/shared/appearance";
 import { isLanguagePreference, type LanguagePreference } from "@/shared/i18n";
 import { emailFormatError, passwordFormatError, usernameFormatError } from "@/shared/validation";
-
-const SALT_ROUNDS = 12;
-
-export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, SALT_ROUNDS);
-}
-
-export async function verifyPassword(password: string, passwordHash: string): Promise<boolean> {
-  return bcrypt.compare(password, passwordHash);
-}
 
 export function validateUsername(username: string): string | null {
   return usernameFormatError(username);

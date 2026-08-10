@@ -13,13 +13,15 @@ export type ListPersonasResponseBody =
   | { ok: true; personas: { id: string; name: string; status: string; videoReady: boolean; trainingStartedAt: string | null }[] }
   | { ok: false; error: string };
 
+const PRIVATE_CACHE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" } as const;
+
 export async function GET() {
   const db = getDb();
   const user = await getCurrentUser().catch(() => null);
   if (!user || !user.emailVerified) {
     return NextResponse.json<ListPersonasResponseBody>(
       { ok: false, error: "You're not logged in." },
-      { status: 401 },
+      { status: 401, headers: PRIVATE_CACHE_HEADERS },
     );
   }
 
@@ -29,19 +31,22 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       select: { id: true, name: true, status: true, liveAvatarId: true, trainingStartedAt: true },
     });
-    return NextResponse.json<ListPersonasResponseBody>({
-      ok: true,
-      personas: personas.map(({ liveAvatarId, trainingStartedAt, ...persona }) => ({
-        ...persona,
-        videoReady: Boolean(liveAvatarId),
-        trainingStartedAt: trainingStartedAt?.toISOString() ?? null,
-      })),
-    });
+    return NextResponse.json<ListPersonasResponseBody>(
+      {
+        ok: true,
+        personas: personas.map(({ liveAvatarId, trainingStartedAt, ...persona }) => ({
+          ...persona,
+          videoReady: Boolean(liveAvatarId),
+          trainingStartedAt: trainingStartedAt?.toISOString() ?? null,
+        })),
+      },
+      { headers: PRIVATE_CACHE_HEADERS },
+    );
   } catch (error) {
     console.error("GET /api/personas failed", error);
     return NextResponse.json<ListPersonasResponseBody>(
       { ok: false, error: "Couldn't load personas — the database isn't reachable yet." },
-      { status: 500 },
+      { status: 500, headers: PRIVATE_CACHE_HEADERS },
     );
   }
 }

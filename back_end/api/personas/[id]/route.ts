@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, verifyPassword } from "@/back_end/services/auth";
+import { getCurrentUser } from "@/back_end/services/auth";
+import { verifyPassword } from "@/back_end/services/password";
 import { getDb } from "@/back_end/services/db";
 import { deletePersonaMedia } from "@/back_end/services/storage";
 import { deleteAllRagData } from "@/back_end/services/persona-rag";
