@@ -1,0 +1,80 @@
+--- a/runtime/python/fastapi/server.py
++++ b/runtime/python/fastapi/server.py
+@@ -20,6 +20,7 @@
+ import hashlib
+ import json
+ import re
++import time
+ import urllib.error
+ import urllib.request
+ from collections import OrderedDict
+@@ -65,10 +66,26 @@
+     LiveTalking's 20 ms / 16 kHz frames after resampling and avoids waiting
+     for an entire sentence before the avatar can start.
+     """
++    started_at = time.perf_counter()
++    first_packet = True
++    packet_count = 0
+     for i in model_output:
+         tts_audio = (i['tts_speech'].numpy() * (2 ** 15)).astype(np.int16).tobytes()
+         for offset in range(0, len(tts_audio), chunk_bytes):
++            packet_count += 1
++            if first_packet:
++                logging.info(
++                    "first pcm packet ready latency_ms=%.1f bytes=%d",
++                    (time.perf_counter() - started_at) * 1000.0,
++                    min(chunk_bytes, len(tts_audio) - offset),
++                )
++                first_packet = False
+             yield tts_audio[offset:offset + chunk_bytes]
++    logging.info(
++        "pcm stream complete packets=%d elapsed_ms=%.1f",
++        packet_count,
++        (time.perf_counter() - started_at) * 1000.0,
++    )
+ 
+ 
+ _SENTENCE_UNIT_RE = re.compile(
+@@ -517,6 +534,13 @@
+                         type=str,
+                         default='iic/CosyVoice2-0.5B',
+                         help='local path or modelscope repo id')
++    parser.add_argument(
++        '--fp16',
++        action=argparse.BooleanOptionalAction,
++        default=False,
++        help='enable CUDA FP16 autocast for LLM and flow inference',
++    )
+     args = parser.parse_args()
+-    cosyvoice = AutoModel(model_dir=args.model_dir)
++    cosyvoice = AutoModel(model_dir=args.model_dir, fp16=args.fp16)
++    logging.info("CosyVoice initialized model=%s fp16=%s", args.model_dir, args.fp16)
+     uvicorn.run(app, host="0.0.0.0", port=args.port)
+--- a/cosyvoice/cli/model.py
++++ b/cosyvoice/cli/model.py
+@@ -342,10 +342,14 @@
+         p.start()
+         if stream is True:
+             token_offset = 0
+-            prompt_token_pad = int(np.ceil(flow_prompt_speech_token.shape[1] / self.token_hop_len) * self.token_hop_len - flow_prompt_speech_token.shape[1])
++            # Keep adaptive hop growth local to this utterance. Mutating the
++            # model-wide value made every later request begin at the maximum
++            # hop, so short replies emitted nothing until finalization.
++            token_hop_len = self.token_hop_len
++            prompt_token_pad = int(np.ceil(flow_prompt_speech_token.shape[1] / token_hop_len) * token_hop_len - flow_prompt_speech_token.shape[1])
+             while True:
+                 time.sleep(0.1)
+-                this_token_hop_len = self.token_hop_len + prompt_token_pad if token_offset == 0 else self.token_hop_len
++                this_token_hop_len = token_hop_len + prompt_token_pad if token_offset == 0 else token_hop_len
+                 if len(self.tts_speech_token_dict[this_uuid]) - token_offset >= this_token_hop_len + self.flow.pre_lookahead_len:
+                     this_tts_speech_token = torch.tensor(self.tts_speech_token_dict[this_uuid][:token_offset + this_token_hop_len + self.flow.pre_lookahead_len]).unsqueeze(dim=0)
+                     this_tts_speech = self.token2wav(token=this_tts_speech_token,
+@@ -357,7 +361,7 @@
+                                                      stream=stream,
+                                                      finalize=False)
+                     token_offset += this_token_hop_len
+-                    self.token_hop_len = min(self.token_max_hop_len, self.token_hop_len * self.stream_scale_factor)
++                    token_hop_len = min(self.token_max_hop_len, token_hop_len * self.stream_scale_factor)
+                     yield {'tts_speech': this_tts_speech.cpu()}
+                 if self.llm_end_dict[this_uuid] is True and len(self.tts_speech_token_dict[this_uuid]) - token_offset < this_token_hop_len + self.flow.pre_lookahead_len:
+                     break

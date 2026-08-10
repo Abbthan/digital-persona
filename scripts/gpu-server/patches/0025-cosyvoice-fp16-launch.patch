@@ -1,0 +1,8 @@
+--- a/start-cosyvoice.sh
++++ b/start-cosyvoice.sh
+@@ -12,4 +12,4 @@
+ export LD_LIBRARY_PATH="${root_dir}/LiveTalking/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:${root_dir}/LiveTalking/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:${root_dir}/LiveTalking/.venv/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:${root_dir}/LiveTalking/.venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib:${LD_LIBRARY_PATH:-}"
+ 
+ cd "${root_dir}/CosyVoice"
+-exec .venv/bin/python runtime/python/fastapi/server.py --port 9880
++exec .venv/bin/python runtime/python/fastapi/server.py --port 9880 --fp16

@@ -1,0 +1,162 @@
+--- a/avatars/musetalk/myutil.py
++++ b/avatars/musetalk/myutil.py
+@@ -5,12 +5,43 @@
+     body = image
+     x, y, x1, y1 = face_box
+     x_s, y_s, x_e, y_e = crop_box
+-    face_large = body[y_s:y_e, x_s:x_e].copy()
+-    face_large[y-y_s:y1-y_s, x-x_s:x1-x_s]=face
++    height, width = body.shape[:2]
+ 
+-    mask_image = cv2.cvtColor(mask_array,cv2.COLOR_BGR2GRAY)
+-    mask_image = (mask_image/255).astype(np.float32)
++    # Offline crop metadata can differ from a decoded frame by a pixel after
++    # codec/scale rounding. Clamp it before slicing so blendLinear always
++    # receives identically sized arrays.
++    x_s, x_e = max(0, int(x_s)), min(width, int(x_e))
++    y_s, y_e = max(0, int(y_s)), min(height, int(y_e))
++    if x_e <= x_s or y_e <= y_s:
++        return body
+ 
++    background = body[y_s:y_e, x_s:x_e]
++    face_large = background.copy()
++    insert_x0 = max(0, int(x) - x_s)
++    insert_y0 = max(0, int(y) - y_s)
++    insert_x1 = min(face_large.shape[1], int(x1) - x_s)
++    insert_y1 = min(face_large.shape[0], int(y1) - y_s)
++    if insert_x1 > insert_x0 and insert_y1 > insert_y0:
++        insert_width = insert_x1 - insert_x0
++        insert_height = insert_y1 - insert_y0
++        if face.shape[:2] != (insert_height, insert_width):
++            face = cv2.resize(face, (insert_width, insert_height), interpolation=cv2.INTER_LINEAR)
++        face_large[insert_y0:insert_y1, insert_x0:insert_x1] = face
++
++    if mask_array.ndim == 3:
++        mask_image = cv2.cvtColor(mask_array, cv2.COLOR_BGR2GRAY)
++    else:
++        mask_image = mask_array
++    if mask_image.shape[:2] != face_large.shape[:2]:
++        mask_image = cv2.resize(
++            mask_image,
++            (face_large.shape[1], face_large.shape[0]),
++            interpolation=cv2.INTER_LINEAR,
++        )
++    mask_image = np.ascontiguousarray(
++        np.clip(mask_image.astype(np.float32) / 255.0, 0.0, 1.0)
++    )
++
+     # mask_not = cv2.bitwise_not(mask_array)
+     # prospect_tmp = cv2.bitwise_and(face_large, face_large, mask=mask_array)
+     # background_img = body[y_s:y_e, x_s:x_e]
+@@ -20,7 +51,12 @@
+     #print(mask_image.shape)
+     #print(cv2.minMaxLoc(mask_image))
+ 
+-    body[y_s:y_e, x_s:x_e] = cv2.blendLinear(face_large,body[y_s:y_e, x_s:x_e],mask_image,1-mask_image)
++    body[y_s:y_e, x_s:x_e] = cv2.blendLinear(
++        face_large,
++        background,
++        mask_image,
++        np.ascontiguousarray(1.0 - mask_image),
++    )
+ 
+     #body.paste(face_large, crop_box[:2], mask_image)
+-    return body
+\ No newline at end of file
++    return body
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -678,7 +678,77 @@
+             else:
+                 target_frame = self.frame_list_cycle[idx]
+             return self._render_idle_frame(target_frame)
++
++        def settle_mouth(previous_frame, current_frame, frame_index, progress):
++            """Ease only the mouth into the destination frame.
+ 
++            A full-frame cross-fade doubles the eyes, shoulders and background
++            whenever the talking and idle sources are not pixel-identical.
++            Keep the new pose intact and retain a feathered portion of the
++            prior mouth for 200 ms, so lips close/open without visual ghosts.
++            """
++            if previous_frame is None or current_frame is None:
++                return current_frame
++            if previous_frame.shape != current_frame.shape:
++                logger.warning(
++                    "Skipping mouth transition for mismatched frame shapes: %s != %s",
++                    previous_frame.shape,
++                    current_frame.shape,
++                )
++                return current_frame
++
++            try:
++                face_box = self.coord_list_cycle[frame_index]
++                x0, y0, x1, y1 = [int(value) for value in face_box]
++            except (AttributeError, IndexError, TypeError, ValueError):
++                return current_frame
++
++            frame_height, frame_width = current_frame.shape[:2]
++            x0, x1 = max(0, x0), min(frame_width, x1)
++            y0, y1 = max(0, y0), min(frame_height, y1)
++            face_width = x1 - x0
++            face_height = y1 - y0
++            if face_width < 8 or face_height < 8:
++                return current_frame
++
++            mouth_x0 = x0 + int(face_width * 0.16)
++            mouth_x1 = x1 - int(face_width * 0.16)
++            mouth_y0 = y0 + int(face_height * 0.50)
++            mouth_y1 = y0 + int(face_height * 0.94)
++            roi_width = mouth_x1 - mouth_x0
++            roi_height = mouth_y1 - mouth_y0
++            if roi_width < 4 or roi_height < 4:
++                return current_frame
++
++            previous_roi = previous_frame[mouth_y0:mouth_y1, mouth_x0:mouth_x1]
++            current_roi = current_frame[mouth_y0:mouth_y1, mouth_x0:mouth_x1]
++            if previous_roi.shape != current_roi.shape or previous_roi.size == 0:
++                return current_frame
++
++            feather = np.zeros((roi_height, roi_width), dtype=np.float32)
++            cv2.ellipse(
++                feather,
++                (roi_width // 2, roi_height // 2),
++                (max(1, roi_width // 2 - 1), max(1, roi_height // 2 - 1)),
++                0,
++                0,
++                360,
++                1.0,
++                -1,
++            )
++            blur_radius = max(3, (min(roi_width, roi_height) // 8) | 1)
++            feather = cv2.GaussianBlur(feather, (blur_radius, blur_radius), 0)
++            previous_weight = feather[..., None] * max(0.0, 1.0 - float(progress))
++            blended_roi = (
++                previous_roi.astype(np.float32) * previous_weight
++                + current_roi.astype(np.float32) * (1.0 - previous_weight)
++            )
++            result = current_frame.copy()
++            result[mouth_y0:mouth_y1, mouth_x0:mouth_x1] = np.clip(
++                blended_roi, 0, 255
++            ).astype(np.uint8)
++            return result
++
+         while not quit_event.is_set():
+             try:
+                 audio_frames: list[AudioFrameData]
+@@ -709,9 +779,12 @@
+                 combine_frame = render_talking(res_frame, idx)
+ 
+             if _transition_remaining > 0 and _transition_from is not None:
+-                alpha = (TRANSITION_FRAMES - _transition_remaining + 1) / TRANSITION_FRAMES
+-                combine_frame = cv2.addWeighted(
+-                    _transition_from, 1.0 - alpha, combine_frame, alpha, 0.0
++                progress = (TRANSITION_FRAMES - _transition_remaining + 1) / TRANSITION_FRAMES
++                combine_frame = settle_mouth(
++                    _transition_from,
++                    combine_frame,
++                    idx,
++                    progress,
+                 )
+                 _transition_remaining -= 1
+                 if _transition_remaining == 0:
