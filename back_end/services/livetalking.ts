@@ -204,6 +204,31 @@ export type AvatarTrainingTask = {
   error_msg: string;
 };
 
+export type VoiceSpeechProfile = {
+  version: 1;
+  confidence: "low" | "medium" | "high";
+  language: string;
+  sample_duration_seconds: number;
+  speaking_rate: number;
+  speaking_rate_unit: "words_per_second" | "characters_per_second";
+  speed_factor: number;
+  pause_style: "sparse" | "balanced" | "frequent";
+  pauses_per_minute: number;
+  observed_pause_count: number;
+  median_short_pause_ms: number;
+  median_long_pause_ms: number;
+  long_pause_ratio: number;
+  preferred_boundary: "sentence" | "clause" | "unpunctuated";
+};
+
+export type SavedVoiceReference = {
+  transcript: string | null;
+  /** Aggregate timing only; it contains no transcript content or voice embedding. */
+  speechProfile: VoiceSpeechProfile | null;
+  /** A grounded prompt/memory description derived from speechProfile. */
+  speechStyleSummary: string | null;
+};
+
 /**
  * Checks the durable MuseTalk package on the A800. Task state itself lives
  * in memory there, so it is intentionally not the source of truth after a
@@ -334,7 +359,7 @@ export async function getAvatarTrainingTask(personaId: string, taskId: string): 
 export async function saveVoiceReference(
   personaId: string,
   sourceAsset: { id: string; fileName: string },
-): Promise<string | null> {
+): Promise<SavedVoiceReference | null> {
   const serverUrl = liveTalkingServerUrl();
   const token = await systemToken(personaId);
   if (!serverUrl || !token) return null;
@@ -357,9 +382,21 @@ export async function saveVoiceReference(
       // This happened in production; see docs/gpu-liveportrait-integration.md.
       signal: AbortSignal.timeout(45_000),
     });
-    const body = (await response.json()) as { code: number; data?: { path: string; text: string } };
+    const body = (await response.json()) as {
+      code: number;
+      data?: {
+        path: string;
+        text: string;
+        speech_profile?: VoiceSpeechProfile;
+        speech_style_summary?: string;
+      };
+    };
     if (!response.ok || body.code !== 0 || !body.data) return null;
-    return body.data.text;
+    return {
+      transcript: body.data.text?.trim() || null,
+      speechProfile: body.data.speech_profile ?? null,
+      speechStyleSummary: body.data.speech_style_summary?.trim() || null,
+    };
   } catch {
     return null;
   }

@@ -225,10 +225,11 @@ export async function prepareVoiceReference(db: PrismaClient, personaId: string)
   const { voiceAsset } = await loadTrainingAssets(db, personaId);
   try {
     if (voiceAsset) {
-      const transcript = await saveVoiceReference(personaId, {
+      const voiceReference = await saveVoiceReference(personaId, {
         id: voiceAsset.id,
         fileName: originalName(voiceAsset),
       });
+      const transcript = voiceReference?.transcript ?? null;
       await db.persona.update({
         where: { id: personaId },
         data: { voiceRefAssetId: voiceAsset.id, voiceRefTranscript: transcript },
@@ -239,11 +240,18 @@ export async function prepareVoiceReference(db: PrismaClient, personaId: string)
         // and facts spoken in the recording. Store it under the real asset id
         // with role=source so deleting that upload removes this memory exactly
         // and the extractor never mistakes it for a chat turn authored now.
+        // Timestamped STT also produces a bounded aggregate pause profile.
+        // Keep CosyVoice's prompt transcript itself pristine, but attach the
+        // measured timing summary to the same source-memory row so the LLM
+        // learns phrase breaks/cadence and asset deletion removes it exactly.
+        const sourceMemory = voiceReference?.speechStyleSummary
+          ? `${transcript}\n\n${voiceReference.speechStyleSummary}`
+          : transcript;
         const ingested = await ingestConversationMessage(
           personaId,
           voiceAsset.id,
           "source",
-          transcript,
+          sourceMemory,
         );
         if (!ingested) {
           console.warn("[persona-training] voice transcript memory ingestion skipped", {

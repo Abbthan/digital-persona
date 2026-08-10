@@ -121,7 +121,11 @@ each modified file as `<name>.bak*`.
 
 - **`POST /api/voice/reference`** — `persona_id` + `audio` → converts to
   16kHz mono WAV via `ffmpeg`, saves to `data/voice_refs/<persona_id>.wav`,
-  proxies to CosyVoice's `/transcribe` for the text. Replaces an earlier,
+  proxies to CosyVoice's `/transcribe` for the text and timestamped aggregate
+  speech-timing profile. The private profile sidecar at
+  `data/voice_refs/<persona_id>.speech.json` lets CosyVoice reproduce supported
+  pace and phrase-break habits without storing a second audio copy or
+  restarting inference at each pause. Replaces an earlier,
   simpler transcribe-only endpoint once it became clear `refaudio` needs a
   stable server-side path, not just a transcript.
 - **`server/avatar_routes.py`**'s existing `create_avatar_task` — extended to
