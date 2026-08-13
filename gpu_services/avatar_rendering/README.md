@@ -42,9 +42,25 @@ Measured on the physical 8x A800 host with real 960x720 Ethan persona frames:
 | single-pass flow reuse, 128x128 face crop | 73.612 ms |
 
 All paths failed the 28 ms gate. The experiment process was stopped after the
-benchmark so GPU 5 is free. The generated frames were visually coherent, but
-latency—not image validity—prevents safe live activation. See
+benchmark so GPU 5 is free. See
 `docs/rife-liveportrait-runtime-evaluation-2026-08-11.md`.
+
+## Offline RIFE transition bank
+
+`build_offline_transition_bank.py` and `offline_transition_bank.py` implement
+a bounded preparation-time experiment. The builder selects eight talking-pose
+anchors, maps each talking frame to an anchor, finds the closest idle frame,
+and bakes three RIFE intermediates. The loader validates a versioned,
+atomically published manifest and shares immutable decoded frames through a
+small LRU cache.
+
+The bank is deliberately **not wired into production**. On the Ethan persona,
+24 frames baked in roughly 7–10 seconds and runtime selection became a memory
+lookup, but different camera framing between guided and passive recordings
+still produced unacceptable hair/background arcs. Offline execution removes
+latency, not incorrect optical correspondence. Activation patches were removed
+so it cannot be enabled accidentally. See
+`docs/offline-rife-audio-driver-evaluation-2026-08-12.md`.
 
 ## LivePortrait boundary
 
@@ -54,3 +70,16 @@ LivePortrait renderer must be a separate feature-flagged process and must have
 an independently validated audio-to-motion driver before it can replace
 MuseTalk. Passing MuseTalk's output into LivePortrait can be tested as an
 enhancement, but it is not a true MuseTalk replacement.
+
+EchoMimic V1/V2 are offline diffusion pipelines and miss real-time throughput.
+The community LivePortrait-AudioDriven project requires a custom MEAD training
+run and its own statistics/checkpoint. The official Apache-2.0 Ditto pipeline,
+which provides an online HuBERT configuration and TensorRT engines, is the next
+isolated candidate. It must pass latency, bilingual lip-sync, idle-motion, and
+A/V continuity gates before any production renderer switch.
+
+An isolated Ditto checkout and Python/TensorRT environment exist on the GPU
+server, but the model artifacts are not installed and no Ditto process is
+running. Do not point production at that directory or advertise benchmark
+results until the model download, local warp-engine build, and the promotion
+gates in `docs/offline-rife-audio-driver-evaluation-2026-08-12.md` are complete.
