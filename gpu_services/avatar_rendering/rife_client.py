@@ -26,7 +26,10 @@ class RifeTransitionClient:
         }:
             return None
         endpoint = os.getenv("RIFE_TRANSITION_URL", "http://127.0.0.1:9030")
-        timeout_ms = float(os.getenv("RIFE_TRANSITION_TIMEOUT_MS", "28"))
+        try:
+            timeout_ms = float(os.getenv("RIFE_TRANSITION_TIMEOUT_MS", "750"))
+        except ValueError:
+            timeout_ms = 750.0
         return cls(endpoint, timeout_seconds=timeout_ms / 1000.0)
 
     def interpolate(

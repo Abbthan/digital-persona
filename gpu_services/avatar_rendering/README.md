@@ -5,24 +5,24 @@ LiveTalking/MuseTalk remains the default renderer.
 
 ## RIFE transition interpolation
 
-`rife_service.py` runs on `127.0.0.1:9030`, pinned to an otherwise-unused GPU.
-It generates three intermediate frames only for the talking-to-idle boundary.
-Frames use a bounded raw-binary localhost protocol; no Base64, R2, Worker, or
-public route is involved.
+`rife_service.py` runs on `127.0.0.1:9030` on GPU 5. It generates three runtime
+intermediate frames for both idle→talking and talking→idle boundaries. Frames
+use a bounded raw-binary localhost protocol; no Base64, R2, Worker, or public
+route is involved.
 
-This service is **not wired into production LiveTalking**. An earlier
-feature-flag patch was deliberately discarded after the real-persona benchmark
-missed the render deadline. Do not add it to `start-livetalking.sh` until a new
-implementation satisfies all of these gates:
-
-- p95 end-to-end service time below 28 ms at the avatar's real resolution;
-- no transition frame duplicates, corruption, or shape mismatch;
-- no extra audio queue depth and no A/V drift;
-- visual review beats the existing pose-match + mouth-neutralization fallback.
-
-If the service is unavailable, late, or returns invalid output, LiveTalking
-continues through its existing transition code. RIFE is never required for a
+As of 2026-08-14 the feature-flagged client is wired into production
+LiveTalking. The three interpolation frames replace the next three ordinary
+video frames; they are not inserted, so audio and video packet counts and
+timestamps remain unchanged. A state change cancels any older pending
+transition. If the service is unavailable, overloaded, late, or returns an
+invalid response, LiveTalking immediately continues through its established
+pose-match + mouth-neutralization transition. RIFE is never required for a
 session to start.
+
+The startup script attempts to bring up the localhost service on GPU 5, but it
+does not block LiveTalking startup if RIFE fails. Runtime activation is
+controlled by `RIFE_TRANSITION_ENABLED`, `RIFE_TRANSITION_URL`, and
+`RIFE_TRANSITION_TIMEOUT_MS` (currently 750 ms).
 
 The model implementation and weights remain server-local in
 `/data/echodigitalpersona/RIFE-experiment`; they are not committed here. The
@@ -41,9 +41,12 @@ Measured on the physical 8x A800 host with real 960x720 Ethan persona frames:
 | single-pass flow reuse, 256x256 face crop | 85.311 ms |
 | single-pass flow reuse, 128x128 face crop | 73.612 ms |
 
-All paths failed the 28 ms gate. The experiment process was stopped after the
-benchmark so GPU 5 is free. See
-`docs/rife-liveportrait-runtime-evaluation-2026-08-11.md`.
+All paths failed the original 28 ms gate. The product decision on 2026-08-14
+explicitly relaxed that gate in favor of runtime continuity. With single-pass
+flow reuse at 960×720, the new bidirectional test measured 195.993 ms median /
+204.606 ms p95 for idle→talking and 194.366 ms median / 210.326 ms p95 for
+talking→idle. See `docs/runtime-rife-bidirectional-2026-08-14.md` and the older
+baseline in `docs/rife-liveportrait-runtime-evaluation-2026-08-11.md`.
 
 ## Offline RIFE transition bank
 

@@ -1,0 +1,14 @@
+--- a/start-livetalking.sh
++++ b/start-livetalking.sh
+@@ -7,6 +7,12 @@
+ export HF_HOME="${root_dir}/cache/huggingface"
+ export MODELSCOPE_CACHE="${root_dir}/cache/modelscope"
++export PYTHONPATH="${root_dir}:${PYTHONPATH:-}"
++# Optional local-only RIFE boundary renderer. LiveTalking catches timeouts and
++# continues with its established mouth-neutralization transition.
++export RIFE_TRANSITION_ENABLED="${RIFE_TRANSITION_ENABLED:-1}"
++export RIFE_TRANSITION_URL="${RIFE_TRANSITION_URL:-http://127.0.0.1:9030}"
++export RIFE_TRANSITION_TIMEOUT_MS="${RIFE_TRANSITION_TIMEOUT_MS:-750}"
+ # Prefer the CUDA libraries bundled with the copied Python environment.  The
+ # host CUDA toolkit has a mismatched cuSOLVER build, which prevents dlib (used
+ # during avatar preparation) from importing even though PyTorch itself works.

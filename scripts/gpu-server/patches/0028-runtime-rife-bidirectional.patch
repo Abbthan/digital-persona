@@ -1,0 +1,110 @@
+--- a/avatars/base_avatar.py
++++ b/avatars/base_avatar.py
+@@ -48,6 +48,11 @@
+ 
+ from utils.logger import logger
+ from utils.image import read_imgs,mirror_index
++
++try:
++    from gpu_services.avatar_rendering.runtime_transition import RuntimeRifeTransition
++except ImportError:
++    RuntimeRifeTransition = None
+ 
+ # class State(Enum):
+ #     INIT=0
+@@ -594,14 +599,26 @@
+     def process_frames(self,quit_event):
+         # The trained talking and passive-idle sources are visibly different
+         # even at their best matching poses, so a hard cut flashes. Blend the
+-        # last emitted frame into the new state over 200 ms without buffering
+-        # or changing audio timing.
++        # last emitted frame into the new state without adding video packets
++        # or changing audio timing. Runtime RIFE is optional and fail-open;
++        # mouth neutralization remains the local fallback.
+         TRANSITION_FRAMES = 5
+ 
+         _last_speaking = False
+         _last_emitted_frame = None
+         _transition_from = None
+         _transition_remaining = 0
++        _runtime_rife = None
++        if RuntimeRifeTransition is not None:
++            try:
++                _runtime_rife = RuntimeRifeTransition.from_environment()
++                if _runtime_rife.enabled:
++                    logger.info("Runtime RIFE transitions enabled for idle↔talking boundaries")
++            except Exception:
++                logger.warning(
++                    "Could not initialize runtime RIFE; using mouth transition fallback",
++                    exc_info=True,
++                )
+ 
+         self.output.start()
+ 
+@@ -759,26 +776,58 @@
+             # Follow inference's visual hangover rather than recomputing the
+             # speaking state from raw audio types here.
+             current_speaking = res_frame is not None
+-            if current_speaking != _last_speaking:
+-                logger.info(f"状态切换：{'说话' if _last_speaking else '静音'} → {'说话' if current_speaking else '静音'}")
+-                if _last_speaking and not current_speaking:
++            previous_speaking = _last_speaking
++            state_changed = current_speaking != previous_speaking
++            if state_changed:
++                logger.info(f"状态切换：{'说话' if previous_speaking else '静音'} → {'说话' if current_speaking else '静音'}")
++                if previous_speaking and not current_speaking:
+                     audiotype = audio_frames[0].type
+                     if self.custom_index.get(audiotype) is not None:
+                         matched_index = self.__nearest_idle_transition_frame(audiotype, _last_emitted_frame)
+                         if matched_index is not None:
+                             self.custom_index[audiotype] = matched_index
+                             logger.info("matched talking→idle transition to frame %s (audiotype=%s)", matched_index, audiotype)
+-                if _last_emitted_frame is not None:
+-                    _transition_from = _last_emitted_frame.copy()
+-                    _transition_remaining = TRANSITION_FRAMES
+-            _last_speaking = current_speaking
+ 
+             if not current_speaking: #全为静音数据，只需要取fullimg
+                 combine_frame = render_idle(audio_frames[0].type, idx)
+             else:
+                 combine_frame = render_talking(res_frame, idx)
+ 
+-            if _transition_remaining > 0 and _transition_from is not None:
++            rife_started = False
++            if state_changed and _last_emitted_frame is not None:
++                if _runtime_rife is not None and _runtime_rife.enabled:
++                    started = time.perf_counter()
++                    try:
++                        rife_started = _runtime_rife.begin(
++                            _last_emitted_frame,
++                            combine_frame,
++                        )
++                        if rife_started:
++                            logger.info(
++                                "Runtime RIFE %s transition generated in %.1f ms",
++                                "talking→idle" if previous_speaking else "idle→talking",
++                                (time.perf_counter() - started) * 1000.0,
++                            )
++                    except Exception:
++                        logger.warning(
++                            "Runtime RIFE %s transition failed; using mouth fallback",
++                            "talking→idle" if previous_speaking else "idle→talking",
++                            exc_info=True,
++                        )
++                if rife_started:
++                    _transition_from = None
++                    _transition_remaining = 0
++                else:
++                    _transition_from = _last_emitted_frame.copy()
++                    _transition_remaining = TRANSITION_FRAMES
++
++            _last_speaking = current_speaking
++
++            if _runtime_rife is not None and _runtime_rife.remaining > 0:
++                # Replace, rather than insert, the next three video frames so
++                # the 25fps video and 50fps audio packet clocks stay aligned.
++                combine_frame = _runtime_rife.render_or(combine_frame)
++            elif _transition_remaining > 0 and _transition_from is not None:
+                 progress = (TRANSITION_FRAMES - _transition_remaining + 1) / TRANSITION_FRAMES
+                 combine_frame = settle_mouth(
+                     _transition_from,

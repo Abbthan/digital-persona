@@ -1,0 +1,24 @@
+--- a/start-livetalking.sh
++++ b/start-livetalking.sh
+@@ -26,5 +26,21 @@
+ export PERSONA_MEMORY_URL="http://127.0.0.1:9010"
+ export PERSONA_MEMORY_SHADOW_LEGACY="1"
+ 
++# Keep RIFE an optional localhost dependency: attempt to start it on the
++# assigned free GPU, but never prevent LiveTalking from starting. Every avatar
++# session retains its in-process mouth-transition fallback.
++if ! curl -fsS --max-time 2 http://127.0.0.1:9030/health >/dev/null 2>&1; then
++    nohup env \
++        RIFE_GPU_ID="${RIFE_GPU_ID:-5}" \
++        RIFE_FP16="${RIFE_FP16:-0}" \
++        RIFE_SINGLE_PASS_FLOW="${RIFE_SINGLE_PASS_FLOW:-1}" \
++        bash "${root_dir}/gpu_services/avatar_rendering/start-rife.sh" \
++        >> "${root_dir}/RIFE-experiment/runtime.log" 2>&1 < /dev/null &
++    for _attempt in $(seq 1 15); do
++        curl -fsS --max-time 2 http://127.0.0.1:9030/health >/dev/null 2>&1 && break
++        sleep 2
++    done
++fi
++
+ cd "${root_dir}/LiveTalking"
+ exec .venv/bin/python app.py --transport webrtc --model musetalk --avatar_id musetalk_test1 --tts cosyvoice --TTS_SERVER http://127.0.0.1:9880 --batch_size 4 --max_session 10 -l 5 -r 5
