@@ -790,3 +790,41 @@ Ditto is the first recommended isolated benchmark because it has an online,
 audio-driven path. Base LivePortrait requires a separate audio-to-expression
 driver. See `docs/rtx3090-avatar-renderer-evaluation-2026-08-21.md` for the
 VRAM, licensing, acceptance, canary, and fallback requirements.
+
+## 15. 2026-08-21 production parity audit
+
+All six persistent services were enabled and active, with no failed user
+units. The gateway, CosyVoice, WenetSpeech-Wu and Faster-Whisper health routes
+all returned healthy. GPU allocation was 17,248 MiB of 24,576 MiB.
+
+The audit caught a lazy-runtime failure that a shallow health check had missed:
+Faster-Whisper could start, but its first real transcription failed because
+`libcublas.so.12` was absent from the isolated STT environment. The repair:
+
+- pins cuBLAS, CUDA Runtime and cuDNN inside the speech-recognition environment;
+- exposes only that environment's NVIDIA library directories to the process;
+- loads cuBLAS and cuDNN during application startup, so a broken CUDA runtime
+  can no longer report healthy and fail only on first use.
+
+Post-repair real round trips passed:
+
+- English Faster-Whisper: 366 ms model latency;
+- Mandarin Faster-Whisper: 131 ms model latency;
+- Wu route: 621 ms HTTP total, including 487 ms WenetSpeech-Wu inference.
+
+The public named-tunnel WebRTC test also passed after the repair: connected,
+202 video frames, non-zero idle/speaking motion, audio peak 19,237, explicit
+session cleanup and no warning-level journal entries. Total diagnostic wall
+time was 12.70 seconds, including ICE, three seconds of idle observation,
+synthesis, playback observation and cleanup.
+
+CosyVoice punctuation/prosody verification passed in English and Chinese. The
+latest short-utterance first-audio measurements were about 1.62 seconds for
+English and 1.33 seconds for Chinese. English full-generation time can still
+slightly exceed generated audio duration on this single 3090, so this is a
+remaining performance limitation rather than full old-A800 latency parity.
+
+The public page and API routes render correctly. A stale cached profile could
+briefly request an avatar while session hydration was expiring and parse an
+HTML/interrupted response as JSON; `UserAvatar` now validates HTTP/content type
+and fails quietly to initials instead of emitting an unhandled console error.

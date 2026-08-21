@@ -24,11 +24,25 @@ export function UserAvatar({ username, profileImageUrl, className }: UserAvatarP
   useEffect(() => {
     if (!profileImageUrl) return;
     let cancelled = false;
-    fetch("/api/account/avatar")
-      .then((response) => response.json())
-      .then((data: { url: string | null }) => {
-        if (!cancelled) setUrl(data.url);
-      });
+    async function loadAvatar() {
+      try {
+        const response = await fetch("/api/account/avatar", {
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!response.ok || !contentType.includes("application/json")) return;
+        const data = await response.json().catch(() => null) as { url?: unknown } | null;
+        if (!cancelled && data && (typeof data.url === "string" || data.url === null)) {
+          setUrl(data.url);
+        }
+      } catch {
+        // A stale cached account can mount briefly while /api/auth/me clears
+        // an expired session. Keep the initials fallback without emitting an
+        // unhandled promise rejection if that avatar request is interrupted.
+      }
+    }
+    void loadAvatar();
     return () => {
       cancelled = true;
     };
