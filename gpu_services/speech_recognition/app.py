@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import logging
 import os
 import tempfile
@@ -23,6 +24,20 @@ MODEL_ROOT = os.environ.get("FASTER_WHISPER_MODEL_ROOT", "/home/user/echo/models
 WU_URL = os.environ.get("WENETSPEECH_WU_URL", "http://127.0.0.1:9890/transcribe-path")
 MAX_AUDIO_BYTES = int(os.environ.get("STT_MAX_AUDIO_BYTES", str(20 * 1024 * 1024)))
 
+
+def require_cuda_runtime() -> None:
+    """Fail startup instead of reporting healthy with a broken lazy runtime."""
+
+    if DEVICE != "cuda":
+        return
+    for library in ("libcublas.so.12", "libcudnn.so.9"):
+        try:
+            ctypes.CDLL(library)
+        except OSError as error:
+            raise RuntimeError(f"Faster-Whisper CUDA dependency is unavailable: {library}") from error
+
+
+require_cuda_runtime()
 MODEL = WhisperModel(
     MODEL_NAME,
     device=DEVICE,
