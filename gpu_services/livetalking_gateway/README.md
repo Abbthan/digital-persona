@@ -36,3 +36,11 @@ never commit it. For public WebRTC sessions it supplies
 `TURN_CREDENTIAL`. LiveTalking retains STUN/direct candidates and adds the
 authenticated TURN relay; the browser receives the same relay configuration
 from the Worker.
+
+When a persona has no separate passive scan, avatar preparation can create a
+six-second deterministic procedural idle loop from a neutral baked frame. The
+fallback combines bounded mean-reverting head drift, subtle breathing and
+three-to-six-second blink timing. It never replaces a supplied passive scan,
+runs only during preparation, consumes no persistent GPU memory and fails open
+to the established full-frame fallback. Set
+`ECHO_PROCEDURAL_IDLE_ENABLED=0` to disable it.

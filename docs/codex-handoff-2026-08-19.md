@@ -759,6 +759,16 @@ authoritative sources with persona/account scoping checks.
   latency, bilingual lip-sync, identity-preservation and rollback gates before
   production activation.
 
+An immediate non-GPU fallback is now available for newly prepared personas
+that have no separate passive scan. It selects a neutral, sharp frame from the
+baked avatar, applies bounded mean-reverting head drift and subtle breathing,
+and reuses a landmark-confirmed naturally closed-eye source frame for blinks.
+It never synthesizes eyelids, never replaces a real passive scan, runs only at
+preparation time, and fails open to the prior full-frame fallback. The isolated
+Ethan preview produced 150 frames at 25 fps, selected source frame 56 and
+natural blink frame 96, with no static consecutive pairs and no visible eye
+deformation in the inspected blink sequence.
+
 ### Current verification and source-control state
 
 Local pure-code tests pass (18 tests), Python compilation passes and

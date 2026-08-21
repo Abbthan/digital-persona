@@ -65,8 +65,23 @@ def main() -> int:
             check=True,
         )
     if not any(idle_dir.glob("*.png")):
-        for source_frame in sorted((avatar_root / "full_imgs").glob("*.png")):
-            shutil.copy2(source_frame, idle_dir / source_frame.name)
+        generated = False
+        if os.environ.get("ECHO_PROCEDURAL_IDLE_ENABLED", "1").strip().lower() not in {"0", "false", "no"}:
+            try:
+                from gpu_services.livetalking_gateway.procedural_idle import generate_procedural_idle
+
+                generate_procedural_idle(
+                    avatar_root / "full_imgs",
+                    avatar_root / "coords.pkl",
+                    idle_dir,
+                    args.avatar_id,
+                )
+                generated = True
+            except Exception as error:
+                print(f"procedural idle generation failed; using full-frame fallback: {error}", file=sys.stderr)
+        if not generated:
+            for source_frame in sorted((avatar_root / "full_imgs").glob("*.png")):
+                shutil.copy2(source_frame, idle_dir / source_frame.name)
     state.update(status="completed", progress=100, error_msg="", end_time=time.time())
     atomic_write(state_path, state)
     return 0
