@@ -771,6 +771,22 @@ deformation in the inspected blink sequence.
 
 ### Current verification and source-control state
 
-Local pure-code tests pass (18 tests), Python compilation passes and
-`git diff --check` is clean. The migration/runtime files still need one final
-reviewed commit and push after the remaining production-browser/log checks.
+The service-local suites pass 49 tests with one optional RIFE test skipped;
+Python compilation and `git diff --check` are clean. The Agentic Memory suite's
+HTTP integration test additionally needs its own environment's `httpx`
+dependency when run on a development Mac. That service is not loaded on the
+single RTX 3090, so this is not a production regression.
+
+### Renderer candidates staged without changing production
+
+LivePortrait and Ditto source trees are now pinned under
+`/home/user/echo/experiments`. No weights, environments, ports, systemd units,
+or GPU processes were added. Production remains LiveTalking + MuseTalk.
+
+- LivePortrait: `9b294b3d0536135442ea73cb01e6cb3ca7029dd3`
+- Ditto: `c3e47eee2e626500017a0556b470d6d4182f85e8`
+
+Ditto is the first recommended isolated benchmark because it has an online,
+audio-driven path. Base LivePortrait requires a separate audio-to-expression
+driver. See `docs/rtx3090-avatar-renderer-evaluation-2026-08-21.md` for the
+VRAM, licensing, acceptance, canary, and fallback requirements.
