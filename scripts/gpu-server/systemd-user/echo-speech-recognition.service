@@ -1,0 +1,16 @@
+[Unit]
+Description=ECHO FasterWhisper speech-recognition router
+After=network-online.target echo-wenetspeech-wu.service
+Wants=network-online.target echo-wenetspeech-wu.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/echo/app
+ExecStart=/home/user/echo/app/gpu_services/speech_recognition/start.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -15,6 +15,7 @@ from pathlib import Path
 import torch
 import torchaudio
 import yaml
+import soundfile as sf
 from aiohttp import web
 
 from selection import TranscriptCandidate, choose_transcript
@@ -99,7 +100,12 @@ def _validate_audio_path(raw_path: str) -> Path:
 
 
 def _features(audio_path: Path) -> tuple[torch.Tensor, torch.Tensor, float]:
-    waveform, sample_rate = torchaudio.load(str(audio_path))
+    # torchaudio 2.9 delegates file loading to the optional TorchCodec
+    # package. The Wu boundary accepts canonical WAV only, so SoundFile is a
+    # smaller and more stable decoder and leaves torchaudio responsible only
+    # for resampling and Kaldi features.
+    samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+    waveform = torch.from_numpy(samples.T.copy())
     if waveform.numel() == 0:
         raise ValueError("audio contains no samples")
     waveform = waveform.mean(dim=0, keepdim=True)

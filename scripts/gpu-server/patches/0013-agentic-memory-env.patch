@@ -1,9 +1,9 @@
 --- a/start-livetalking.sh
 +++ b/start-livetalking.sh
 @@ -20,6 +20,8 @@
- export TURN_SERVER_URL="turn:47.116.3.151:3478?transport=udp"
- export TURN_USERNAME="digitalpersona"
- export TURN_CREDENTIAL="digitalpersona123"
+ export TURN_SERVER_URL="turn:your-turn-server:3478?transport=udp"
+ export TURN_USERNAME="replace-with-turn-username"
+ export TURN_CREDENTIAL="replace-with-turn-credential"
 +export PERSONA_MEMORY_URL="http://127.0.0.1:9010"
 +export PERSONA_MEMORY_SHADOW_LEGACY="1"
  

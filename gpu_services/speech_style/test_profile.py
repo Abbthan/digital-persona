@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from profile import build_speech_profile, condition_tts_text, speech_style_summary
+from gpu_services.speech_style.profile import (
+    build_speech_profile,
+    condition_tts_text,
+    speech_style_summary,
+)
 
 
 class SpeechProfileTests(unittest.TestCase):

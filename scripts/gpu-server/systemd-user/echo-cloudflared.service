@@ -1,0 +1,16 @@
+[Unit]
+Description=ECHO Cloudflare named-tunnel connector
+After=network-online.target echo-gateway.service
+Wants=network-online.target echo-gateway.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/echo
+ExecStart=/home/user/echo/app/scripts/gpu-server/start-cloudflared-tunnel-3090.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

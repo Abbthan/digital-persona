@@ -8,12 +8,11 @@ persists transcript content; only the bounded numeric speech profile is saved.
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import tempfile
 from pathlib import Path
 
 import requests
+
+from gpu_services.livetalking_gateway.speech_profile import save_speech_profile
 
 
 def write_profile(reference: Path, endpoint: str) -> tuple[str, str]:
@@ -29,17 +28,11 @@ def write_profile(reference: Path, endpoint: str) -> tuple[str, str]:
     if not isinstance(profile, dict):
         raise ValueError("transcription response did not contain a speech profile")
 
-    destination = reference.with_suffix(".speech.json")
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix="speech_profile_", suffix=".json", dir=destination.parent
-    )
-    try:
-        with os.fdopen(file_descriptor, "w", encoding="utf-8") as output:
-            json.dump(profile, output, ensure_ascii=False, separators=(",", ":"))
-        os.replace(temporary_name, destination)
-    finally:
-        if os.path.exists(temporary_name):
-            os.unlink(temporary_name)
+    destination = save_speech_profile(reference, profile)
+    if destination is None:
+        # Low-confidence recordings are deliberately not applied to live
+        # synthesis; report them without leaving a stale cadence sidecar.
+        return profile.get("confidence", "unknown"), profile.get("language", "unknown")
     return profile.get("confidence", "unknown"), profile.get("language", "unknown")
 
 
@@ -47,9 +40,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--voice-ref-dir",
-        default="/data/echodigitalpersona/LiveTalking/data/voice_refs",
+        default="/home/user/echo/services/livetalking/data/voice_refs",
     )
-    parser.add_argument("--endpoint", default="http://127.0.0.1:9880/transcribe")
+    parser.add_argument("--endpoint", default="http://127.0.0.1:9891/transcribe")
     args = parser.parse_args()
 
     references = sorted(Path(args.voice_ref_dir).glob("*.wav"))

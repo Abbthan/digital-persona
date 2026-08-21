@@ -7,12 +7,13 @@ English/general-language engine and as the failure fallback.
 
 ## Runtime isolation
 
-- GPU: physical GPU 2 (`CUDA_VISIBLE_DEVICES=2`)
+- GPU: the ECHO rendering GPU (`CUDA_VISIBLE_DEVICES=0` by default on the
+  single-RTX-3090 host)
 - Compute dtype: FP32 (FP16 produced invalid attention-rescoring values for
   this published checkpoint during validation)
 - HTTP: `127.0.0.1:9890`
-- Source: `/data/echodigitalpersona/services/wenetspeech-wu`
-- Model: `/data/echodigitalpersona/models/wenetspeech-wu/u2++`
+- Source: `${ECHO_ROOT}/services/wenetspeech-wu`
+- Model: `${ECHO_ROOT}/models/wenetspeech-wu/u2++`
 - Disposable audio: `/tmp` or `/data/echodigitalpersona/runtime/jobs`
 - tmux service: `echo-wenetspeech-wu`
 

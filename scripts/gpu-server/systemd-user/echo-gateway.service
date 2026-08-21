@@ -1,0 +1,16 @@
+[Unit]
+Description=ECHO authenticated GPU gateway
+After=network-online.target echo-livetalking.service echo-speech-recognition.service
+Wants=network-online.target echo-livetalking.service echo-speech-recognition.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/echo/app
+ExecStart=/home/user/echo/app/scripts/gpu-server/start-gateway-3090.sh
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

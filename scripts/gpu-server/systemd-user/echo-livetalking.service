@@ -1,0 +1,17 @@
+[Unit]
+Description=ECHO LiveTalking WebRTC renderer
+After=network-online.target echo-cosyvoice.service
+Wants=network-online.target echo-cosyvoice.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/echo/services/livetalking
+ExecStart=/home/user/echo/app/scripts/gpu-server/start-livetalking-3090.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillSignal=SIGINT
+UMask=0077
+
+[Install]
+WantedBy=default.target
