@@ -26,7 +26,7 @@ Connect the **existing** `echo-digital-persona` Worker to `Abbthan/digital-perso
 - Production branches: `main` only
 - Preview branches: disabled until separate non-production resources are configured
 
-Workers Builds installs dependencies from the lockfile. The build script generates Prisma without connecting to the database, runs admin regressions and lint, creates the OpenNext bundle and prepares static shells. Upload retains dashboard runtime variables; existing Worker secrets, Hyperdrive, R2, domains and GPU endpoints are preserved.
+Workers Builds installs dependencies from the lockfile. The build script generates Cloudflare binding types and Prisma without connecting to the database, runs admin regressions and lint, creates the OpenNext bundle and prepares static shells. Upload retains dashboard runtime variables; existing Worker secrets, Hyperdrive, R2, domains and GPU endpoints are preserved.
 
 Do **not** use `npm run release` as a Cloudflare build command: it is a local commit-and-push helper and would cause recursive releases. No database migration or GPU deployment runs automatically from website builds.
 
@@ -44,4 +44,4 @@ Tests: `npm run test:admin`. Build: `npm run build:cloudflare`.
 
 The editor and build commands were implemented and pushed to the existing repository. The full OpenNext build, TypeScript check and admin regressions passed; English/Chinese login-page rendering was checked in the browser. Both custom domains expose the deployed admin shell and `/version.json` for parity verification.
 
-The owner approved creation of the **ECHO GitHub production builds** token. Cloudflare now shows the existing Worker connected to `Abbthan/digital-persona`, production branch `main`, root `/`, with the build and deploy commands above. Production builds are enabled. This documentation update is the first Git-push verification of the automatic connection; verify its Cloudflare build result and `/version.json` before considering that test complete. The earlier editor deployment was performed manually from the same pushed source commit.
+The owner approved creation of the **ECHO GitHub production builds** token. Cloudflare now shows the existing Worker connected to `Abbthan/digital-persona`, production branch `main`, root `/`, with the build and deploy commands above. Production builds are enabled. The first push triggered Workers Builds successfully but uncovered a clean-checkout issue: the gitignored `cloudflare-env.d.ts` had not been generated before the Next.js type check. The build script now regenerates both Cloudflare types and Prisma on every build. Verify the latest Cloudflare build result and `/version.json` to confirm the deployed commit. The earlier editor deployment was performed manually from the same pushed source commit.

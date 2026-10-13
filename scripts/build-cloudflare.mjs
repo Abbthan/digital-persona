@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
 
+// This generated file is intentionally gitignored. A clean CI checkout must
+// recreate the binding types before Next's TypeScript check, just as it
+// recreates the Prisma client below. No production credentials are needed.
+execFileSync("npm", ["run", "cf-typegen"], { stdio: "inherit" });
+
 // A fresh Git clone has no generated Prisma client or database credentials.
 // Generation needs a syntactically valid URL, but never connects to a DB.
 // This placeholder is confined to generation, not the application build.
