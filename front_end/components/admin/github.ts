@@ -155,14 +155,27 @@ export class GitHubEditor {
     );
     if (
       !record(result) ||
-      result.encoding !== "base64" ||
-      typeof result.content !== "string" ||
+      result.type !== "file" ||
       typeof result.sha !== "string" ||
+      !/^[a-f0-9]{40}$/.test(result.sha) ||
       typeof result.size !== "number" ||
       result.size > 5 * 1024 * 1024
     )
       throw new Error("This image is too large for the editor.");
-    return { sha: result.sha, base64: result.content.replace(/\s/g, "") };
+    // Contents returns no Base64 for files over 1 MB. Blob retrieval handles
+    // existing artwork such as the 1.9 MB founder portrait without a CDN
+    // redirect or sending the credential to another host.
+    const blob = await this.request(`${ROOT}/git/blobs/${result.sha}`);
+    if (
+      !record(blob) ||
+      blob.encoding !== "base64" ||
+      typeof blob.content !== "string" ||
+      typeof blob.size !== "number" ||
+      blob.size > 5 * 1024 * 1024 ||
+      blob.sha !== result.sha
+    )
+      throw new Error("Could not load this image from GitHub.");
+    return { sha: result.sha, base64: blob.content.replace(/\s/g, "") };
   }
   async publish(
     path: string,

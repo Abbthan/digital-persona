@@ -39,3 +39,9 @@ Before editing: `git pull --ff-only origin main`. Browser publication updates Gi
 `npm run release -- "Describe the change"` verifies, commits and pushes local changes. Once Workers Builds is connected, GitHub is the normal deployment trigger. `npm run deploy:cloudflare` is available for a controlled manual recovery, using the existing Worker and bindings.
 
 Tests: `npm run test:admin`. Build: `npm run build:cloudflare`.
+
+## Setup record — 14 October 2026
+
+The editor and build commands were implemented and pushed to the existing repository. The full OpenNext build, TypeScript check and admin regressions passed; English/Chinese login-page rendering was checked in the browser. Both custom domains expose the deployed admin shell and `/version.json` for parity verification.
+
+**Automatic Builds connection is still pending approval.** The existing `digital-persona build token` displayed missing-permission warnings, and automatic approval review rejected saving that connection. The Cloudflare dashboard form has been prepared with repository `digital-persona`, branch `main`, the commands above, previews disabled, and the supported **Create new token** option selected. No new token or automatic-build connection has been saved yet. Creating this token grants Cloudflare Builds deployment access to account resources; review its permissions before completing Connect. A manual deployment of the pushed commit was used to publish the editor in the meantime.

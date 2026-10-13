@@ -639,7 +639,7 @@ export function AdminStudio() {
                             width={1200}
                             height={1200}
                             unoptimized
-                            style={{ width: 'auto', height: 'auto' }}
+                            style={{ width: "auto", height: "auto" }}
                             alt={
                               i === 0
                                 ? "Current public artwork"

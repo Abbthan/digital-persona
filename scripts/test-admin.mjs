@@ -194,6 +194,27 @@ test("build check cannot invent a deployment or return unsafe links", async () =
   ]);
   await assert.rejects(editor.checks("not-a-commit"));
 });
+test("images larger than the Contents API limit use authenticated Git blob retrieval", async () => {
+  const calls = [];
+  const sha = "b".repeat(40);
+  const editor = new GitHubEditor("key", async (url) => {
+    calls.push(url);
+    return Response.json(
+      url.includes("/contents/")
+        ? { type: "file", encoding: "none", content: "", sha, size: 1900000 }
+        : { sha, encoding: "base64", content: "YQ==\n", size: 1900000 },
+    );
+  });
+  assert.deepEqual(
+    await editor.loadImage("public/images/ethan-ma-founder.png"),
+    { sha, base64: "YQ==" },
+  );
+  assert.equal(
+    calls[1],
+    "https://api.github.com/repos/Abbthan/digital-persona/git/blobs/" + sha,
+  );
+});
+
 test("truncated repository trees and oversized source files are rejected", async () => {
   await assert.rejects(
     new GitHubEditor("key", async () =>
