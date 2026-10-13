@@ -2,7 +2,7 @@
 
 /**
  * ECHO's single production release path:
- *   verify -> stage safe source -> commit -> GitHub push -> Cloudflare deploy
+ *   verify -> stage safe source -> commit -> GitHub push -> Workers Builds
  *
  * Keeping GitHub before Cloudflare means every live deployment has an
  * immutable, reviewable source commit. It intentionally never reads or
@@ -29,6 +29,9 @@ try {
     throw new Error("Production releases must be made from the main branch.");
   }
 
+  run("git", ["fetch", "origin", "main"]);
+  // Reconcile browser publications before committing a new local release.
+  run("git", ["merge-base", "--is-ancestor", "origin/main", "HEAD"]);
   run("git", ["diff", "--check"]);
   run("npm", ["run", "verify"]);
 
@@ -50,8 +53,7 @@ try {
   // Force HTTP/1.1 because this Mac's default Git HTTP/2 TLS negotiation has
   // previously failed while the same GitHub remote works correctly over 1.1.
   run("git", ["-c", "http.version=HTTP/1.1", "push", "origin", "HEAD:main"]);
-  run("npm", ["run", "deploy:cloudflare"]);
-  console.log("\nRelease complete: GitHub main is synchronized, then Cloudflare was deployed.");
+  console.log("\nSource pushed to GitHub main. The connected Cloudflare Workers Build deploys this commit automatically. Verify the build and /version.json before declaring it live.");
 } catch (error) {
   console.error(`\nRelease stopped before a partial deployment: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

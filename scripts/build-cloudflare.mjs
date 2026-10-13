@@ -1,0 +1,20 @@
+import { execFileSync } from "node:child_process";
+
+// A fresh Git clone has no generated Prisma client or database credentials.
+// Generation needs a syntactically valid URL, but never connects to a DB.
+// This placeholder is confined to generation, not the application build.
+execFileSync("npx", ["--no-install", "prisma", "generate"], {
+  stdio: "inherit",
+  env: {
+    ...process.env,
+    DATABASE_URL:
+      process.env.DATABASE_URL ||
+      "postgresql://build:build@localhost:5432/build",
+  },
+});
+execFileSync("npm", ["run", "test:admin"], { stdio: "inherit" });
+execFileSync("npm", ["run", "lint"], { stdio: "inherit" });
+execFileSync("npx", ["--no-install", "opennextjs-cloudflare", "build"], {
+  stdio: "inherit",
+});
+execFileSync("npm", ["run", "prepare-static-assets"], { stdio: "inherit" });

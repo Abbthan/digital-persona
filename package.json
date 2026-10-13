@@ -11,7 +11,10 @@
     "prepare-static-assets": "node scripts/prepare-static-assets.mjs",
     "preview": "opennextjs-cloudflare build && npm run prepare-static-assets && wrangler dev",
     "deploy": "npm run release",
-    "deploy:cloudflare": "opennextjs-cloudflare build && npm run prepare-static-assets && OPEN_NEXT_DEPLOY=true npx wrangler deploy",
+    "build:cloudflare": "node scripts/build-cloudflare.mjs",
+    "deploy:cloudflare": "npm run build:cloudflare && npm run upload:cloudflare",
+    "upload:cloudflare": "OPEN_NEXT_DEPLOY=true wrangler deploy --keep-vars",
+    "test:admin": "node --test scripts/test-admin.mjs",
     "verify": "npm run lint && npx tsc --noEmit && npm run build",
     "release": "node scripts/release.mjs"
   },

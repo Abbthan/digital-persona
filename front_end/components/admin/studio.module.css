@@ -1,0 +1,462 @@
+.studio {
+  --paper: #f3f7fa;
+  --ink: #17232c;
+  --muted: #617382;
+  --line: #d6e1e8;
+  --accent: #0876aa;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  color-scheme: light;
+  font-family: var(--font-text, Georgia, serif);
+  line-height: 1.6;
+}
+.studio * {
+  box-sizing: border-box;
+}
+.studio h1,
+.studio h2,
+.studio p {
+  margin: 0;
+}
+.studio h1,
+.studio h2 {
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+.studio button,
+.studio input,
+.studio textarea,
+.studio select {
+  font: inherit;
+}
+.studio button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  padding: 9px 16px;
+  border-radius: 8px;
+}
+.studio button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.studio button:focus-visible,
+.studio a:focus-visible,
+.studio input:focus-visible,
+.studio textarea:focus-visible,
+.studio select:focus-visible {
+  outline: 3px solid #56b4dc;
+  outline-offset: 3px;
+}
+.studio a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.studio label {
+  display: block;
+  margin: 20px 0 7px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.studio input:not([type="file"]),
+.studio textarea,
+.studio select {
+  width: 100%;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.studio textarea {
+  resize: vertical;
+}
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 22px 4vw;
+  border-bottom: 1px solid var(--line);
+  gap: 24px;
+}
+.brand {
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: 0.13em;
+}
+.brand span {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.17em;
+  color: var(--muted);
+}
+.header > div {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: 14px;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.17em;
+  color: var(--muted);
+}
+.login {
+  max-width: 1250px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 7vw;
+  align-items: center;
+  padding: 95px 5vw 120px;
+}
+.login h1 {
+  font-size: clamp(40px, 5vw, 68px);
+  line-height: 1.15;
+  margin: 25px 0;
+}
+.login h1 em {
+  color: var(--accent);
+  font-weight: 400;
+}
+.login section > p:not(.eyebrow) {
+  max-width: 430px;
+  color: var(--muted);
+  font-size: 17px;
+}
+.flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  border-top: 1px solid var(--line);
+  padding-top: 22px;
+  margin-top: 32px;
+  color: var(--muted);
+}
+.flow span {
+  color: var(--accent);
+}
+.loginCard {
+  background: #e6f0f6;
+  border: 1px solid var(--line);
+  padding: 34px;
+  border-radius: 14px;
+}
+.loginCard h2 {
+  font-size: 30px;
+  margin: 12px 0;
+}
+.loginCard > p {
+  font-size: 14px;
+  color: var(--muted);
+}
+.studio .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.studio .primary:hover:not(:disabled) {
+  background: #075e88;
+}
+.loginCard .primary {
+  margin: 22px 0;
+  width: 100%;
+}
+.loginCard details {
+  font-size: 13px;
+  border-top: 1px solid var(--line);
+  padding: 17px 0;
+}
+.loginCard summary {
+  cursor: pointer;
+}
+.loginCard details p {
+  margin: 12px 0;
+}
+.note {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.8;
+  margin: 12px 0 !important;
+}
+.footer {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding: 22px 4vw;
+  font-size: 11px;
+  color: var(--muted);
+  gap: 20px;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  min-height: 75vh;
+}
+.sidebar {
+  border-right: 1px solid var(--line);
+  padding: 35px 22px;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar nav {
+  display: grid;
+  gap: 8px;
+  margin-top: 25px;
+}
+.sidebar nav button {
+  text-align: left;
+  border: none;
+}
+.sidebar button[aria-pressed="true"] {
+  background: #dceaf3;
+  color: var(--accent);
+}
+.sidebar small {
+  margin-right: 14px;
+  color: var(--muted);
+}
+.account {
+  margin-top: auto;
+  padding-top: 45px;
+  font-size: 14px;
+}
+.account small {
+  display: block;
+  margin: 8px 0 18px;
+  font-size: 10px;
+}
+.editor {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 35px 4vw 65px;
+  min-width: 0;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 28px;
+}
+.toolbar h1 {
+  font-size: 36px;
+  margin-top: 8px;
+}
+.toolbar button {
+  font-size: 13px;
+}
+.status {
+  background: #e7f3ee;
+  border: 1px solid #bdddcf;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 22px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.status p {
+  margin: 6px 0;
+}
+.status button {
+  margin-top: 8px;
+}
+.error {
+  background: #fff0ed;
+  border: 1px solid #e7bbb3;
+  padding: 14px;
+  color: #903c2e;
+  border-radius: 8px;
+  margin: 15px 0 !important;
+  font-size: 13px !important;
+  overflow-wrap: anywhere;
+}
+.textEditor {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 32px;
+}
+.textList {
+  padding-right: 20px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+.textList label {
+  margin-top: 0;
+}
+.textList > div {
+  max-height: 620px;
+  overflow: auto;
+  margin-top: 12px;
+}
+.textList button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 12px 9px;
+}
+.textList button[aria-pressed="true"] {
+  background: #dceaf3;
+  color: var(--accent);
+}
+.textEditor h2 {
+  font-size: 27px;
+}
+.textEditor textarea {
+  line-height: 1.8;
+}
+.studio .code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  white-space: pre;
+  overflow: auto;
+  line-height: 1.7;
+  tab-size: 2;
+}
+.images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin: 25px 0;
+}
+.images figure {
+  margin: 0;
+}
+.images figcaption {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 9px;
+}
+.images figure > div {
+  height: 280px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: repeating-conic-gradient(#e5ebef 0% 25%, #fff 0% 50%) 0 0/22px
+    22px;
+}
+.images img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.review {
+  margin-top: 32px;
+  border: 1px solid #a2c7de;
+  background: #e4f0f8;
+  border-radius: 12px;
+  padding: 28px;
+}
+.review h2 {
+  font-size: 29px;
+  margin: 10px 0;
+}
+.review p {
+  font-size: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.review > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+}
+@media (max-width: 950px) {
+  .workspace {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+  .textEditor {
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 22px;
+  }
+  .editor {
+    padding: 28px 24px;
+  }
+  .login {
+    gap: 4vw;
+  }
+}
+@media (max-width: 700px) {
+  .login {
+    grid-template-columns: 1fr;
+    padding: 50px 22px;
+    gap: 35px;
+  }
+  .loginCard {
+    padding: 25px;
+  }
+  .header {
+    padding: 20px;
+  }
+  .header > div {
+    gap: 12px;
+    font-size: 12px;
+  }
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 18px;
+  }
+  .sidebar > .eyebrow {
+    display: none;
+  }
+  .sidebar nav {
+    display: flex;
+    margin-top: 0;
+  }
+  .sidebar nav small {
+    display: none;
+  }
+  .account {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    padding-top: 15px;
+  }
+  .account small {
+    margin: 0;
+  }
+  .account button {
+    margin-left: auto;
+    font-size: 12px;
+  }
+  .toolbar h1 {
+    font-size: 27px;
+  }
+  .toolbar .eyebrow {
+    font-size: 8px;
+  }
+  .textEditor {
+    grid-template-columns: 1fr;
+  }
+  .textList {
+    border-right: 0;
+    padding-right: 0;
+  }
+  .textList > div {
+    max-height: 165px;
+  }
+  .images {
+    grid-template-columns: 1fr;
+  }
+  .footer {
+    flex-direction: column;
+  }
+}

@@ -2,12 +2,14 @@
 
 import { useLayoutEffect } from "react";
 import { useLocale } from "@/front_end/state/locale-context";
+import siteContent from "@/shared/site-content.json";
+import { parseSiteContent, websiteText } from "@/shared/site-content";
 
 // This dictionary is intentionally central rather than scattered through each
 // page. It translates both existing and future-mounted modal/dashboard text,
 // while keeping proper nouns such as ECHO unchanged. New user-generated text
 // (persona names, questions, messages) is never altered.
-const zh: Record<string, string> = {
+export const WEBSITE_TEXT_CATALOG: Record<string, string> = {
   "Home": "首页", "Pricing": "价格", "About Us": "关于我们", "FAQ": "常见问题", "Dashboard": "控制台", "Register": "注册", "Account settings": "账户设置", "Toggle menu": "切换菜单",
   "Frequently asked questions.": "常见问题", "Support": "支持", "Further Questions?": "还有其他问题？", "We're here to help.": "我们随时为您提供帮助。", "Your name": "您的姓名", "Your question": "您的问题", "Up to 50 characters": "最多 50 个字符", "Up to 500 characters": "最多 500 个字符", "Send question": "提交问题", "Sending…": "正在发送…",
   "What is ECHO 回响?": "什么是 ECHO 回响？", "Who can see my personas and uploads?": "谁可以查看我的人格与上传内容？", "What can I upload to a persona?": "我可以向人格上传什么？", "Can I change or delete files later?": "之后可以修改或删除文件吗？", "How do subscriptions work?": "订阅如何运作？", "How do I get help with my account?": "如何获得账户帮助？",
@@ -44,6 +46,18 @@ const zh: Record<string, string> = {
 };
 
 const translatedAttributes = new Set(["placeholder", "aria-label", "title"]);
+const zh = WEBSITE_TEXT_CATALOG;
+const websiteContent = parseSiteContent(siteContent);
+
+function renderedText(value: string, locale: "en" | "zh", element: Element) {
+  // Content overrides are for the public website, never persona messages,
+  // uploaded documents or the editor's own drafts. Existing translation stays.
+  const path = window.location.pathname.replace(/\/$/, "") || "/";
+  if (["/", "/about", "/pricing", "/faq"].includes(path)) {
+    return websiteText(value, locale, websiteContent, translateEnglishToChinese);
+  }
+  return locale === "zh" && !element.closest("[data-no-translate]") ? translateEnglishToChinese(value) : value;
+}
 const originalTextByNode = new WeakMap<Text, string>();
 const originalAttributesByElement = new WeakMap<Element, Map<string, string>>();
 
@@ -124,21 +138,22 @@ function translateTree(root: Node, locale: "en" | "zh") {
   while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
   for (const node of textNodes) {
     const parent = node.parentElement;
-    if (!parent || ["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"].includes(parent.tagName)) continue;
+    if (!parent || parent.closest("[data-no-translate]") || ["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"].includes(parent.tagName)) continue;
     const stored = originalTextByNode.get(node);
     // React may reuse a text node when data changes. If it has re-rendered a
     // fresh source string, record that source; if it is merely our existing
     // Chinese display, retain the original English source.
-    const original = !stored || (node.data !== stored && node.data !== translateEnglishToChinese(stored))
+    const original = !stored || (node.data !== stored && node.data !== renderedText(stored, "en", parent) && node.data !== renderedText(stored, "zh", parent))
       ? node.data
       : stored;
     originalTextByNode.set(node, original);
-    const next = locale === "zh" ? translateEnglishToChinese(original) : original;
+    const next = renderedText(original, locale, parent);
     if (next !== node.data) node.data = next;
   }
   if (!(root instanceof Element)) return;
   const elements = [root, ...Array.from(root.querySelectorAll("*"))];
   for (const element of elements) {
+    if (element.closest("[data-no-translate]")) continue;
     for (const attribute of translatedAttributes) {
       const value = element.getAttribute(attribute);
       if (!value) continue;
@@ -148,9 +163,9 @@ function translateTree(root: Node, locale: "en" | "zh") {
         originalAttributesByElement.set(element, originals);
       }
       const stored = originals.get(attribute);
-      const original = !stored || (value !== stored && value !== translateEnglishToChinese(stored)) ? value : stored;
+      const original = !stored || (value !== stored && value !== renderedText(stored, "en", element) && value !== renderedText(stored, "zh", element)) ? value : stored;
       originals.set(attribute, original);
-      const next = locale === "zh" ? translateEnglishToChinese(original) : original;
+      const next = renderedText(original, locale, element);
       if (next !== value) element.setAttribute(attribute, next);
     }
   }
