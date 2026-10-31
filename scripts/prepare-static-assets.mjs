@@ -15,9 +15,11 @@ const pages = [
   [".next/server/app/faq.html", ".open-next/assets/faq.html"],
   [".next/server/app/dashboard.html", ".open-next/assets/dashboard.html"],
   [".next/server/app/admin.html", ".open-next/assets/admin/index.html"],
+  [".next/server/app/demo.html", ".open-next/assets/demo/index.html"],
 ];
 
 await mkdir(".open-next/assets/admin", { recursive: true });
+await mkdir(".open-next/assets/demo", { recursive: true });
 await Promise.all(pages.map(([source, destination]) => copyFile(source, destination)));
 
 // A static version endpoint makes commit-to-domain parity independently

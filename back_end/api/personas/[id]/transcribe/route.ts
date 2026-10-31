@@ -4,8 +4,14 @@ import { getDb } from "@/back_end/services/db";
 import { isLiveTalkingConfigured } from "@/back_end/services/live-avatar";
 import { transcribeVoiceClip } from "@/back_end/services/speech";
 import { normalizeSttLanguagePreference } from "@/shared/stt-language";
+import type { SpokenLanguageVariant } from "@/shared/stt-language";
 
-export type TranscribeResponseBody = { ok: true; text: string } | { ok: false; error: string };
+export type TranscribeResponseBody = {
+  ok: true;
+  text: string;
+  spokenVariant: SpokenLanguageVariant;
+  variantConfidence: number | null;
+} | { ok: false; error: string };
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const db = getDb();
@@ -35,16 +41,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json<TranscribeResponseBody>({ ok: false, error: "No audio received." }, { status: 400 });
     }
 
-    const dialectPreference = normalizeSttLanguagePreference(persona.sttDialectPreference);
-    const text = await transcribeVoiceClip(personaId, audio, dialectPreference);
-    if (text === null) {
+    const configuredPreference = normalizeSttLanguagePreference(persona.sttDialectPreference);
+    // Auto is an additional choice, not an override of an owner's explicit
+    // Mandarin, Wu or English selection in the existing slider.
+    const dialectPreference = configuredPreference;
+    const transcription = await transcribeVoiceClip(personaId, audio, dialectPreference);
+    if (transcription === null) {
       return NextResponse.json<TranscribeResponseBody>(
         { ok: false, error: "Couldn't reach the transcription server." },
         { status: 502 },
       );
     }
 
-    return NextResponse.json<TranscribeResponseBody>({ ok: true, text });
+    return NextResponse.json<TranscribeResponseBody>({ ok: true, ...transcription });
   } catch (error) {
     console.error("POST /api/personas/[id]/transcribe failed", error);
     return NextResponse.json<TranscribeResponseBody>({ ok: false, error: "Transcription failed." }, { status: 500 });

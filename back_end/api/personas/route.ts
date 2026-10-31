@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     const persona = await db.persona.create({
-      data: { userId: user.id, name, status: "draft", avatarStyle },
+      data: { userId: user.id, name, status: "draft", avatarStyle, sttDialectPreference: "auto" },
       select: { id: true, name: true },
     });
 

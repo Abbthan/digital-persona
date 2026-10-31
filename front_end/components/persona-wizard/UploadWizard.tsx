@@ -35,7 +35,7 @@ export function UploadWizard({ open, personaId, personaName, onFinish, onCancel 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assetRefreshVersion, setAssetRefreshVersion] = useState(0);
-  const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("mandarin");
+  const [dialectPreference, setDialectPreference] = useState<SttDialectPreference>("auto");
   const [dialectSaving, setDialectSaving] = useState(false);
   const [dialectError, setDialectError] = useState<string | null>(null);
   // See PersonaManagerModal.tsx's identical guard: a fast slider click can

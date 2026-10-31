@@ -25,7 +25,7 @@ export function GlobalDock() {
   // Dashboard routes provide their own persistent sidebar navigation. Keeping
   // the marketing dock there duplicates navigation and consumes vertical
   // space that the dashboard shell can use instead.
-  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/admin" || pathname.startsWith("/admin/")) return null;
+  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/") || pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/demo") return null;
 
   // Only intercept navigation to /pricing when we're not already there —
   // per Phase 1, on /pricing itself it should just scroll/highlight instead

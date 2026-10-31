@@ -26,6 +26,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "cloudflare-env.d.ts",
     "generated/**",
+    "ops/cloudflare-demo-proxy/worker-configuration.d.ts",
     // Third-party agent-skill reference docs/examples (installed via
     // `npx skills add`) — not this app's code, not held to its lint rules.
     ".agents/**",
