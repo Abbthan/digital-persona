@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/back_end/services/auth";
-import { getDb } from "@/back_end/services/db";
-import { hasPaidAccess } from "@/back_end/services/limits";
+import { getLiveSessionAccess } from "@/back_end/services/live-session-access";
 import {
   createLiveSessionToken,
   isLiveTalkingConfigured,
@@ -18,32 +16,16 @@ import {
 // once negotiated; only this signaling step needed to move server-side.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const startedAt = Date.now();
-  const db = getDb();
-  const user = await getCurrentUser().catch(() => null);
-  if (!user || !user.emailVerified) {
-    return NextResponse.json({ ok: false, error: "You're not logged in." }, { status: 401 });
-  }
-
-  if (!hasPaidAccess(user.subscriptionStatus, user.subscriptionRenewsAt)) {
-    return NextResponse.json(
-      { ok: false, error: "Real-time voice and video conversation is a subscriber feature." },
-      { status: 403 },
-    );
-  }
+  const { id: personaId } = await params;
+  const access = await getLiveSessionAccess(personaId, { requireAvatar: true });
+  if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
+  const user = { id: access.userId };
+  const persona = access.persona;
 
   if (!isLiveTalkingConfigured()) {
     return NextResponse.json({ ok: false, error: "The live avatar server isn't configured yet." }, { status: 503 });
   }
 
-  const { id: personaId } = await params;
-
-  const persona = await db.persona.findFirst({
-    where: { id: personaId, userId: user.id },
-    select: { id: true, status: true, liveAvatarId: true, voiceRefTranscript: true },
-  });
-  if (!persona || persona.status !== "active") {
-    return NextResponse.json({ ok: false, error: "Persona not found." }, { status: 404 });
-  }
   if (!persona.liveAvatarId) {
     return NextResponse.json(
       { ok: false, error: "Complete both the guided and passive facial scans to enable live video." },

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CreateLiveSessionResponseBody } from "@/back_end/api/personas/[id]/live-session/route";
+import { readLiveSessionResponse } from "@/shared/live-session-response";
 
 // The actual WebRTC media (video/audio) connects browser-to-GPU-box
 // directly once negotiated — Cloudflare Workers can't hold a stateful
@@ -84,7 +85,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
     async function connect() {
       console.info("[live-avatar] connecting", { personaId, attempt: connectAttempt + 1 });
       const tokenResponse = await fetch(`/api/personas/${personaId}/live-session`, { method: "POST" });
-      const tokenResult = (await tokenResponse.json()) as CreateLiveSessionResponseBody;
+      const tokenResult = (await readLiveSessionResponse(tokenResponse)) as CreateLiveSessionResponseBody;
       if (cancelled) return;
       if (!tokenResult.ok) throw new Error(tokenResult.error);
       console.info("[live-avatar] session configuration received", {
@@ -159,10 +160,12 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         if (cancelled) return;
         if (pc.connectionState === "connected") {
           connected = true;
+          window.clearTimeout(timeoutId);
           console.info("[live-avatar] connected", { personaId });
           setStatus("connected");
         } else if (pc.connectionState === "failed") {
           connected = false;
+          window.clearTimeout(timeoutId);
           releaseSession();
           if (!autoRetryUsedRef.current) {
             autoRetryUsedRef.current = true;
@@ -201,8 +204,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
           ...(tokenResult.refText ? { reftext: tokenResult.refText } : {}),
         }),
       });
-      if (!offerResponse.ok) throw new Error(`Avatar server returned ${offerResponse.status}.`);
-      const answer = (await offerResponse.json()) as
+      const answer = (await readLiveSessionResponse(offerResponse)) as
         | { sdp: string; type: RTCSdpType; sessionid: string }
         | { code: number; msg: string };
       // A 2xx status isn't itself proof of a real SDP answer — this
@@ -252,6 +254,10 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
 
     connect().catch((connectError) => {
       if (cancelled) return;
+      window.clearTimeout(timeoutId);
+      cancelled = true;
+      pcRef.current?.close();
+      releaseSession();
       console.error("[live-avatar] connection error", { personaId, error: connectError });
       setStatus("error");
       setError(connectError instanceof Error ? connectError.message : "Couldn't connect to the avatar server.");

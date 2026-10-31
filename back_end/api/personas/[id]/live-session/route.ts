@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/back_end/services/auth";
-import { getDb } from "@/back_end/services/db";
-import { hasPaidAccess } from "@/back_end/services/limits";
+import { getLiveSessionAccess } from "@/back_end/services/live-session-access";
 import { isLiveTalkingConfigured, turnServerConfig } from "@/back_end/services/live-avatar";
 import { voiceRefPath } from "@/back_end/services/speech";
 
@@ -24,21 +22,9 @@ export type CreateLiveSessionResponseBody =
   | { ok: false; error: string };
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const db = getDb();
-  const user = await getCurrentUser().catch(() => null);
-  if (!user || !user.emailVerified) {
-    return NextResponse.json<CreateLiveSessionResponseBody>(
-      { ok: false, error: "You're not logged in." },
-      { status: 401 },
-    );
-  }
-
-  if (!hasPaidAccess(user.subscriptionStatus, user.subscriptionRenewsAt)) {
-    return NextResponse.json<CreateLiveSessionResponseBody>(
-      { ok: false, error: "Real-time voice and video conversation is a subscriber feature." },
-      { status: 403 },
-    );
-  }
+  const { id: personaId } = await params;
+  const access = await getLiveSessionAccess(personaId, { requireAvatar: true });
+  if (!access.ok) return NextResponse.json({ ok: false, error: access.error }, { status: access.status });
 
   if (!isLiveTalkingConfigured()) {
     return NextResponse.json<CreateLiveSessionResponseBody>(
@@ -47,22 +33,8 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     );
   }
 
-  const { id: personaId } = await params;
-
   try {
-    const persona = await db.persona.findFirst({ where: { id: personaId, userId: user.id } });
-    if (!persona) {
-      return NextResponse.json<CreateLiveSessionResponseBody>(
-        { ok: false, error: "Persona not found." },
-        { status: 404 },
-      );
-    }
-    if (persona.status !== "active") {
-      return NextResponse.json<CreateLiveSessionResponseBody>(
-        { ok: false, error: "This persona is still being prepared." },
-        { status: 409 },
-      );
-    }
+    const persona = access.persona;
     if (!persona.liveAvatarId) {
       return NextResponse.json<CreateLiveSessionResponseBody>(
         { ok: false, error: "Complete both the guided and passive facial scans to enable live video." },
@@ -73,7 +45,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     const turn = turnServerConfig();
     console.info("[live-session] configuration issued", {
       personaId,
-      userId: user.id,
+      userId: access.userId,
       personaStatus: persona.status,
       hasAvatar: Boolean(persona.liveAvatarId),
       hasVoiceReference: Boolean(persona.voiceRefTranscript),

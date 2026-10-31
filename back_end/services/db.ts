@@ -1,28 +1,6 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
-
-type HyperdriveBinding = { connectionString: string };
-
-// In the deployed Worker, Hyperdrive supplies a pooled connection string.
-// The try/catch preserves the regular local Next.js development workflow,
-// where Cloudflare bindings are intentionally unavailable. Whether the
-// Hyperdrive binding resolved also tells getDb() below which runtime this
-// is — Workers vs. local `next dev` — since they need different client
-// lifetimes.
-function resolveConnection(): { connectionString: string; isWorkersRuntime: boolean } {
-  try {
-    const hyperdrive = getCloudflareContext().env.HYPERDRIVE as unknown as HyperdriveBinding | undefined;
-    if (hyperdrive?.connectionString) {
-      return { connectionString: hyperdrive.connectionString, isWorkersRuntime: true };
-    }
-  } catch {
-    // Local development and build-time evaluation use DATABASE_URL below.
-  }
-
-  if (process.env.DATABASE_URL) return { connectionString: process.env.DATABASE_URL, isWorkersRuntime: false };
-  throw new Error("DATABASE_URL is missing and the Cloudflare Hyperdrive binding is unavailable.");
-}
+import { resolveConnection } from "@/back_end/services/database-connection";
 
 const globalForDb = globalThis as unknown as { __dbClient?: PrismaClient };
 
