@@ -23,7 +23,27 @@ export async function fetchPersonaModel(url: string, init: RequestInit): Promise
       max_completion_tokens: input.max_output_tokens,
     }),
   });
-  if (!completion.ok) return completion;
+  if (!completion.ok) {
+    if (completion.status === 503) {
+      // Provider-side channel failures can be model/alias-specific. Report
+      // only public model identifiers; never automatically change the model,
+      // provider, credentials or the user's billing configuration.
+      try {
+        const catalogUrl = new URL(alternate);
+        catalogUrl.pathname = catalogUrl.pathname.replace(/\/chat\/completions$/, "/models");
+        const catalog = await fetch(catalogUrl, { headers: init.headers, signal: AbortSignal.timeout(3_000) });
+        if (catalog.ok) {
+          const listing = await catalog.json() as { data?: { id?: unknown }[] };
+          const family = input.model.split("-")[0];
+          console.warn("[persona-ai] provider model catalog", {
+            configuredModel: input.model,
+            relatedModels: listing.data?.flatMap((item) => typeof item.id === "string" && item.id.startsWith(family) ? [item.id] : []).slice(0, 20),
+          });
+        }
+      } catch { /* The diagnostic never masks the original provider failure. */ }
+    }
+    return completion;
+  }
   const body = await completion.json() as { choices?: { message?: { content?: unknown } }[] };
   const content = body.choices?.[0]?.message?.content;
   return Response.json({ output_text: typeof content === "string" ? content : "" });
