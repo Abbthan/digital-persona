@@ -18,7 +18,7 @@ from extraction_client import ExtractionClient
 from graph_store import GraphStore
 from memory_store import MemoryStore
 from schemas import (
-    ComposePromptRequest, ConversationIngestRequest, RetrieveRequest,
+    ComposePromptRequest, ConversationIngestRequest, RetrieveRequest, Extraction,
     SourceDocumentIngestRequest,
 )
 
@@ -71,10 +71,10 @@ def _private_media_url(source_url: str) -> None:
 
 async def _replace(persona_id: str, source_id: str, source_type: str, role: str,
                    created_at: str, chunks: list[tuple[str, str]],
-                   original_name: str = "") -> int:
+                   original_name: str = "", extract_memories: bool = True) -> int:
     vector, graph = stores()
     source_text = "\n\n".join(text for text, _ in chunks)
-    extraction = await extractor.extract(source_text, role, source_type)
+    extraction = await extractor.extract(source_text, role, source_type) if extract_memories else Extraction()
     count = await vector.replace_source(
         persona_id, source_id, source_type, role, created_at,
         chunks, extraction, original_name,
@@ -103,6 +103,7 @@ async def ingest_conversation(
     count = await _replace(
         body.persona_id, body.message_id, "conversation", body.role,
         body.created_at or datetime.now(UTC).isoformat(), chunks,
+        extract_memories=body.extract_memories,
     )
     return {"ok": True, "chunks": len(chunks), "memories": count}
 

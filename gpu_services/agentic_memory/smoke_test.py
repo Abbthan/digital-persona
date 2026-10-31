@@ -39,8 +39,8 @@ def main() -> None:
     source_id, marker = f"source-{suffix}", f"synthetic-marker-{suffix}"
     headers_a = {"Authorization": "Bearer " + token(persona_a)}
     headers_b = {"Authorization": "Bearer " + token(persona_b)}
-    with httpx.Client(timeout=180) as client:
-        before = client.get(base + "/health").json()
+    with httpx.Client(timeout=float(os.environ.get("AGENTIC_MEMORY_TEST_TIMEOUT", "180"))) as client:
+        client.get(base + "/health").raise_for_status()
         try:
             added = client.post(base + "/api/rag/ingest/conversation", headers=headers_a, json={
                 "persona_id": persona_a, "message_id": source_id, "role": "user",
@@ -78,8 +78,14 @@ def main() -> None:
             client.delete(f"{base}/api/rag/persona/{persona_a}", headers=headers_a)
             client.delete(f"{base}/api/rag/persona/{persona_b}", headers=headers_b)
         after = client.get(base + "/health").json()
-    assert after["vector_count"] == before["vector_count"]
-    assert after["graph_memory_count"] == before["graph_memory_count"]
+        # Live users may legitimately add memories during this diagnostic;
+        # verify our own disposable namespaces instead of global count equality.
+        for persona_id, headers in ((persona_a, headers_a), (persona_b, headers_b)):
+            cleaned = client.post(base + "/api/rag/retrieve", headers=headers, json={
+                "persona_id": persona_id, "query": marker, "top_k": 8,
+            })
+            assert cleaned.status_code == 200 and not any(marker in value for value in texts(cleaned.json()))
+    assert after["vector_count"] >= 0 and after["graph_memory_count"] >= 0
     print("SYNTHETIC_ISOLATION_RETRIEVAL_DELETE_PASS")
 
 

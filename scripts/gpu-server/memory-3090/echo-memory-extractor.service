@@ -7,7 +7,8 @@ WorkingDirectory=/home/user/echo/app/gpu_services/agentic_memory
 Environment=MEMORY_EXTRACTOR_MODEL=/home/user/echo/models/Qwen3-4B-Instruct-2507
 Environment=MEMORY_EXTRACTOR_DEVICE=cpu
 Environment=MEMORY_EXTRACTOR_CPU_THREADS=4
-Environment=MEMORY_EXTRACTOR_MAX_NEW_TOKENS=768
+Environment=MEMORY_EXTRACTOR_CPU_INT8=1
+Environment=MEMORY_EXTRACTOR_MAX_NEW_TOKENS=384
 Environment=HF_HUB_OFFLINE=1
 Environment=TOKENIZERS_PARALLELISM=false
 ExecStart=/home/user/echo/envs/agentic-memory/bin/python extractor_app.py

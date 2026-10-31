@@ -76,6 +76,9 @@ class Extraction(BaseModel):
 
 
 class ConversationIngestRequest(BaseModel):
+    # Authenticated maintenance can restore raw history without re-inferring
+    # generated replies as biographical facts. Normal live ingestion is unchanged.
+    extract_memories: bool = True
     persona_id: str = Field(min_length=1, max_length=160)
     message_id: str = Field(min_length=1, max_length=160)
     role: str = Field(min_length=1, max_length=40)

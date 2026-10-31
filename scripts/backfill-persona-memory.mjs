@@ -14,6 +14,9 @@ const databaseUrl = process.env.DATABASE_URL;
 const memoryUrl = process.env.LIVETALKING_SERVER_URL?.replace(/\/+$/, "");
 const secret = process.env.LIVETALKING_SESSION_SECRET;
 const appOrigin = (process.env.PUBLIC_APP_ORIGIN || "https://echodigitalpersona.com").replace(/\/+$/, "");
+const targetIds = (process.env.PERSONA_MEMORY_PERSONA_IDS || "").split(",").map(id=>id.trim()).filter(Boolean);
+const includeChat = process.env.PERSONA_MEMORY_INCLUDE_CHAT === "1";
+if (includeChat && !targetIds.length) throw new Error("Chat backfill requires explicit PERSONA_MEMORY_PERSONA_IDS.");
 
 if (!databaseUrl || !memoryUrl || !secret) {
   throw new Error("DATABASE_URL, LIVETALKING_SERVER_URL, and LIVETALKING_SESSION_SECRET are required.");
@@ -40,7 +43,7 @@ async function post(path, personaId, body) {
     method: "POST",
     headers: { Authorization: `Bearer ${token(personaId)}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(180_000),
+    signal: AbortSignal.timeout(Math.min(900_000, Math.max(180_000, Number(process.env.PERSONA_MEMORY_BACKFILL_TIMEOUT_MS) || 180_000))),
   });
   if (!response.ok) {
     throw new Error(`${response.status}: ${(await response.text()).slice(0, 300)}`);
@@ -55,8 +58,9 @@ try {
     SELECT id, "personaId", type, url, metadata
     FROM "PersonaAsset"
     WHERE type IN ('text'::"AssetType", 'image'::"AssetType")
+      AND (cardinality($1::text[]) = 0 OR "personaId" = ANY($1::text[]))
     ORDER BY "createdAt" ASC
-  `);
+  `, [targetIds]);
   for (const asset of assets) {
     try {
       const fileName = originalName(asset);
@@ -77,9 +81,10 @@ try {
     SELECT id, "voiceRefAssetId", "voiceRefTranscript"
     FROM "Persona"
     WHERE "voiceRefAssetId" IS NOT NULL
+      AND (cardinality($1::text[]) = 0 OR id = ANY($1::text[]))
       AND "voiceRefTranscript" IS NOT NULL
       AND length(trim("voiceRefTranscript")) > 0
-  `);
+  `, [targetIds]);
   for (const persona of voices) {
     try {
       await post("/api/rag/ingest/conversation", persona.id, {
@@ -93,6 +98,26 @@ try {
     } catch (error) {
       failed += 1;
       console.error(`Failed voice transcript ${persona.id}:`, error instanceof Error ? error.message : error);
+    }
+  }
+  if (includeChat) {
+    const {rows: messages} = await pool.query(`
+      SELECT id, "personaId", role, content, "createdAt"
+      FROM "ChatMessage" WHERE "personaId" = ANY($1::text[])
+      ORDER BY "createdAt" ASC
+    `, [targetIds]);
+    for (const message of messages) {
+      try {
+        await post("/api/rag/ingest/conversation", message.personaId, {
+          persona_id: message.personaId, message_id: message.id,
+          role: message.role, content: message.content,
+          created_at: message.createdAt.toISOString(), extract_memories: false,
+        });
+        console.log(`Restored chat source ${message.id}`);
+      } catch (error) {
+        failed += 1;
+        console.error(`Failed chat source ${message.id}:`, error instanceof Error ? error.message : error);
+      }
     }
   }
 } finally {

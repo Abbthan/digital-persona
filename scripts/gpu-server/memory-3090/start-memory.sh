@@ -18,5 +18,8 @@ export ANONYMIZED_TELEMETRY=false
 export HF_HUB_OFFLINE=1
 export OMP_NUM_THREADS=2
 export MKL_NUM_THREADS=2
+export PATH="/home/user/echo/tools/tesseract/root/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="/home/user/echo/tools/tesseract/root/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+export TESSDATA_PREFIX=/home/user/echo/tools/tesseract/root/usr/share/tesseract-ocr/4.00/tessdata
 cd /home/user/echo/app/gpu_services/agentic_memory
 exec /home/user/echo/envs/agentic-memory/bin/python -m uvicorn app:app --host 127.0.0.1 --port 9010 --workers 1
