@@ -116,6 +116,9 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         : [{ urls: PUBLIC_STUN_SERVERS }];
       const pc = new RTCPeerConnection({
         iceServers,
+        // LiveTalking supports BUNDLE. A single transport avoids negotiating
+        // two separate TURN allocations for one synchronised A/V stream.
+        bundlePolicy: "max-bundle",
         ...(tokenResult.turn ? { iceTransportPolicy: "relay" as RTCIceTransportPolicy } : {}),
       });
       pcRef.current = pc;
@@ -133,7 +136,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         }
       });
       pc.addEventListener("iceconnectionstatechange", () => {
-        console.info("[live-avatar] ICE state", { personaId, state: pc.iceConnectionState });
+        console.info(`[live-avatar] ICE state ${pc.iceConnectionState}`);
       });
       pc.addEventListener("icecandidateerror", (event) => {
         // A failed optional STUN/TURN probe is not itself a connection error:
@@ -166,6 +169,7 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
         } else if (pc.connectionState === "failed") {
           connected = false;
           window.clearTimeout(timeoutId);
+          void logMediaDiagnostics(pc);
           releaseSession();
           if (!autoRetryUsedRef.current) {
             autoRetryUsedRef.current = true;
@@ -215,6 +219,9 @@ export function LiveTalkingAvatar({ personaId, latestReply, onSessionReady, clas
       if (!("sdp" in answer) || !answer.sdp) {
         throw new Error("msg" in answer && answer.msg ? answer.msg : "Avatar server sent an invalid response.");
       }
+      console.info(`[live-avatar] remote candidate types ${JSON.stringify(
+        Array.from(answer.sdp.matchAll(/ typ (host|srflx|prflx|relay)/g), (match) => match[1]),
+      )}`);
       if (cancelled) {
         pc.close();
         releaseSession(answer.sessionid);
@@ -363,7 +370,8 @@ function waitForIceGathering(pc: RTCPeerConnection, maxWaitMs: number): Promise<
       const candidateType = event.candidate?.type;
       if (candidateType === "srflx" || candidateType === "relay") {
         hasRoutableCandidate = true;
-        finish(true);
+        // This is non-trickle signalling: send the complete SDP, not a
+        // snapshot taken while another media section is still gathering.
       }
     }
     const timeoutId = window.setTimeout(
@@ -373,4 +381,26 @@ function waitForIceGathering(pc: RTCPeerConnection, maxWaitMs: number): Promise<
     pc.addEventListener("icegatheringstatechange", check);
     pc.addEventListener("icecandidate", candidateReady);
   });
+}
+
+async function logMediaDiagnostics(pc: RTCPeerConnection) {
+  try {
+    const report = await pc.getStats();
+    const stats: Record<string, string | number | boolean | undefined>[] = [];
+    report.forEach((entry) => {
+      if (entry.type === "candidate-pair") stats.push({
+        type: entry.type, state: entry.state, nominated: entry.nominated,
+        requestsSent: entry.requestsSent, responsesReceived: entry.responsesReceived,
+        bytesSent: entry.bytesSent, bytesReceived: entry.bytesReceived,
+      });
+      if (entry.type === "transport") stats.push({ type: entry.type, dtlsState: entry.dtlsState });
+      if (entry.type === "local-candidate" || entry.type === "remote-candidate") stats.push({
+        type: entry.type, candidateType: entry.candidateType, protocol: entry.protocol, relayProtocol: entry.relayProtocol,
+      });
+    });
+    // No addresses, SDP, usernames or credentials in diagnostics.
+    console.warn(`[live-avatar] media diagnostics ${JSON.stringify(stats)}`);
+  } catch {
+    // Diagnostics never change connection behaviour.
+  }
 }

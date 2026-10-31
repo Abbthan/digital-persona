@@ -84,3 +84,9 @@ test('failed connections clear the timer before displaying their real error',()=
   const source=readFileSync('front_end/components/dashboard/LiveTalkingAvatar.tsx','utf8');
   assert.match(source,/connect\(\)\.catch\([\s\S]*?clearTimeout\(timeoutId\)[\s\S]*?cancelled = true/);
 });
+test('non-trickle offers use one transport and wait for complete candidate gathering',()=>{
+  const source=readFileSync('front_end/components/dashboard/LiveTalkingAvatar.tsx','utf8');
+  assert.match(source,/bundlePolicy: "max-bundle"/);
+  const handler=source.slice(source.indexOf('function candidateReady('),source.indexOf('const timeoutId = window.setTimeout(',source.indexOf('function candidateReady(')));
+  assert.doesNotMatch(handler,/finish\(true\)/);
+});
