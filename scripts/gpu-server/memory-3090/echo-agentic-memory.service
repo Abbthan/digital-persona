@@ -1,0 +1,13 @@
+[Unit]
+Description=ECHO isolated agentic memory API
+After=network.target echo-memory-graph.service
+Requires=echo-memory-graph.service
+
+[Service]
+ExecStart=/bin/bash /home/user/echo/app/scripts/gpu-server/memory-3090/start-memory.sh
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

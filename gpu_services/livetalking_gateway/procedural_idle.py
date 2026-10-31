@@ -304,7 +304,7 @@ def generate_procedural_idle(
         # the natural-source path when available, but synthesize an eye-only
         # target from the selected neutral frame as a deterministic last resort.
         blink_target = apply_synthetic_blink(base, box, 1.0)
-        blink_mode = "synthetic"
+        blink_mode = "disabled" if blink_target is base else "synthetic"
     height, width = base.shape[:2]
     frame_count = max(1, round(seconds * fps))
     curve = motion_samples(frame_count, fps, avatar_id)

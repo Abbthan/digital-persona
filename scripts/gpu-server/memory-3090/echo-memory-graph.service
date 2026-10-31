@@ -1,0 +1,15 @@
+[Unit]
+Description=ECHO private memory graph
+After=network.target
+
+[Service]
+Environment=JAVA_HOME=/home/user/echo/tools/memory/jdk-21.0.13+9-jre
+Environment=NEO4J_CONF=/home/user/echo/runtime/agentic-memory/neo4j/conf
+WorkingDirectory=/home/user/echo/tools/memory/neo4j-community-5.26.0
+ExecStart=/home/user/echo/tools/memory/neo4j-community-5.26.0/bin/neo4j console
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

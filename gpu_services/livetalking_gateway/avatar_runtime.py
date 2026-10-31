@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import random
 from dataclasses import dataclass
 from typing import Sequence
@@ -183,6 +184,11 @@ def apply_synthetic_blink(
 ) -> np.ndarray:
     """Blend a bounded eye-only blink into one BGR avatar frame."""
 
+    # Temporarily opt-in only: recorded natural blinks are untouched. This
+    # eye-warp overlay can look artificial on some faces; keeping the default
+    # off also protects talking/mouth composition from unrelated changes.
+    if os.environ.get("ECHO_SYNTHETIC_BLINKS", "0").lower() not in {"1", "true", "yes"}:
+        return frame
     if amount <= 0.0:
         return frame
     import cv2

@@ -21,6 +21,7 @@ MODEL_REVISION = os.environ.get(
     "MEMORY_EXTRACTOR_REVISION", "cdbee75f17c01a7cc42f958dc650907174af0554"
 )
 MAX_NEW_TOKENS = int(os.environ.get("MEMORY_EXTRACTOR_MAX_NEW_TOKENS", "1800"))
+MODEL_DEVICE = os.environ.get("MEMORY_EXTRACTOR_DEVICE", "cuda:0")
 _model: Any = None
 _tokenizer: Any = None
 _lock = threading.Lock()
@@ -105,8 +106,10 @@ def _load() -> tuple[Any, Any]:
                 _tokenizer = AutoTokenizer.from_pretrained(
                     MODEL_NAME, **source_kwargs
                 )
+                if MODEL_DEVICE == "cpu":
+                    torch.set_num_threads(int(os.environ.get("MEMORY_EXTRACTOR_CPU_THREADS", "4")))
                 _model = AutoModelForCausalLM.from_pretrained(
-                    MODEL_NAME, dtype=torch.bfloat16, device_map="cuda:0",
+                    MODEL_NAME, dtype=torch.float32 if MODEL_DEVICE == "cpu" else torch.bfloat16, device_map=MODEL_DEVICE,
                     low_cpu_mem_usage=True, **source_kwargs,
                 )
                 _model.eval()
@@ -148,7 +151,7 @@ def extract_sync(request: ExtractRequest) -> Extraction:
 async def health(_: web.Request) -> web.Response:
     return web.json_response({"ok": True, "service": "memory-extractor",
                               "model": MODEL_NAME, "revision": MODEL_REVISION,
-                              "loaded": _model is not None})
+                              "loaded": _model is not None, "device": MODEL_DEVICE})
 
 
 async def extract(request: web.Request) -> web.Response:

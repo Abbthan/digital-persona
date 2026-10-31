@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import importlib.util
+from unittest.mock import patch
 
 import numpy as np
 
@@ -57,6 +58,11 @@ class NaturalBlinkSchedulerTests(unittest.TestCase):
 
 
 class SyntheticBlinkTests(unittest.TestCase):
+    def test_added_overlay_is_disabled_by_default(self) -> None:
+        frame = np.full((80, 80, 3), 128, dtype=np.uint8)
+        with patch.dict("os.environ", {"ECHO_SYNTHETIC_BLINKS": "0"}):
+            self.assertIs(apply_synthetic_blink(frame, (10, 10, 70, 70), 1.0), frame)
+
     @unittest.skipUnless(importlib.util.find_spec("cv2"), "OpenCV is not installed in the lightweight local test runtime")
     def test_blink_only_changes_the_eye_band(self) -> None:
         import cv2
@@ -67,7 +73,8 @@ class SyntheticBlinkTests(unittest.TestCase):
         cv2.ellipse(frame, (136, 83), (22, 9), 0, 0, 360, (35, 30, 28), -1)
         cv2.ellipse(frame, (110, 155), (25, 8), 0, 0, 180, (60, 55, 50), 2)
 
-        blinked = apply_synthetic_blink(frame, box, 1.0)
+        with patch.dict("os.environ", {"ECHO_SYNTHETIC_BLINKS": "1"}):
+            blinked = apply_synthetic_blink(frame, box, 1.0)
         difference = np.max(np.abs(blinked.astype(np.int16) - frame.astype(np.int16)), axis=2)
         eye_difference = int(np.count_nonzero(difference[55:115, 40:180]))
         mouth_difference = int(np.count_nonzero(difference[130:185, 65:155]))

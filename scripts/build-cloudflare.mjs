@@ -20,6 +20,7 @@ execFileSync("npx", ["--no-install", "prisma", "generate"], {
 execFileSync("npm", ["run", "test:admin"], { stdio: "inherit" });
 execFileSync("node", ["--test", "scripts/test-upstream-integration.mjs"], { stdio: "inherit" });
 execFileSync("node", ["--test", "scripts/test-live-session-access.mjs"], { stdio: "inherit" });
+execFileSync("node", ["--test", "scripts/test-persona-model-transport.mjs"], { stdio: "inherit" });
 execFileSync("npm", ["run", "lint"], { stdio: "inherit" });
 execFileSync("npx", ["--no-install", "opennextjs-cloudflare", "build"], {
   stdio: "inherit",

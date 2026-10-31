@@ -1,5 +1,6 @@
 import { composePersonaPrompt } from "@/back_end/services/persona-rag";
 import type { SpokenLanguageVariant } from "@/shared/stt-language";
+import { fetchPersonaModel } from "@/back_end/services/persona-model-transport";
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
 const MAX_CONTEXT_CHARS = 14_000;
@@ -299,7 +300,7 @@ export async function getPersonaReply(request: PersonaReplyRequest): Promise<Per
   let emptyResponse = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetch(responsesApiUrl(), {
+      const response = await fetchPersonaModel(responsesApiUrl(), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -420,7 +421,7 @@ export async function getPersonaInitiative({
   ].join("\n");
 
   try {
-    const response = await fetch(responsesApiUrl(), {
+    const response = await fetchPersonaModel(responsesApiUrl(), {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ model, instructions, input, max_output_tokens: 120 }),
