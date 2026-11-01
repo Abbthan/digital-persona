@@ -4,6 +4,7 @@ from gpu_services.cosyvoice_service.logic import (
     clamp_speed,
     cosine_fade_int16,
     normalize_language,
+    plan_synthesis_phrases,
     select_inference_mode,
     silence_pcm16,
     split_text_with_pauses,
@@ -118,3 +119,35 @@ def test_cosine_fade_int16_scales_down_on_very_short_clauses() -> None:
 
 def test_cosine_fade_int16_handles_empty_input() -> None:
     assert cosine_fade_int16(np.zeros(0, dtype=np.int16)).shape == (0,)
+
+
+def test_phrase_plan_does_not_restart_for_a_one_word_comma_tail() -> None:
+    assert plan_synthesis_phrases("Two plus three is five, man.") == [("Two plus three is five, man.", 0.0)]
+
+
+def test_phrase_plan_preserves_punctuation_and_final_question() -> None:
+    text = "That's a good one. Always loved that quote, the round pegs in square holes. What made you share that with me?"
+    phrases = plan_synthesis_phrases(text)
+    assert " ".join(phrase for phrase, _ in phrases) == text
+    assert len(phrases) == 2
+    assert phrases[-1][0] == "What made you share that with me?"
+    assert phrases[-1][1] == 0
+
+
+def test_phrase_plan_chinese_keeps_clause_context_and_measured_breaks() -> None:
+    profile = {"version": 1, "confidence": "high", "median_long_pause_ms": 800}
+    phrases = plan_synthesis_phrases("你好，今天过得怎么样，有没有想起以前的事情？我想听听你的看法。", profile)
+    assert [phrase for phrase, _ in phrases] == ["你好，今天过得怎么样，有没有想起以前的事情？", "我想听听你的看法。"]
+    assert 0.752 <= phrases[0][1] <= 0.848
+
+
+def test_phrase_plan_preserves_decimals_ellipsis_and_paragraph_breaks() -> None:
+    phrases = plan_synthesis_phrases("It costs 15.99. Wait...\nActually, yes.")
+    assert [phrase for phrase, _ in phrases] == ["It costs 15.99. Wait...", "Actually, yes."]
+    assert 0.7 <= phrases[0][1] <= 0.9
+
+
+def test_phrase_plan_does_not_merge_across_paragraphs() -> None:
+    phrases = plan_synthesis_phrases("Hi.\nHello, my friend.")
+    assert [phrase for phrase, _ in phrases] == ["Hi.", "Hello, my friend."]
+    assert 0.7 <= phrases[0][1] <= 0.9

@@ -13,18 +13,19 @@ from typing import Iterator
 
 import numpy as np
 import torch
-import torchaudio
+import soxr
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from .logic import (
     clamp_speed,
-    cosine_fade_int16,
     normalize_language,
+    plan_synthesis_phrases,
     select_inference_mode,
     silence_pcm16,
-    split_text_with_pauses,
 )
+from .pcm import fade_stream, prebuffer_pcm, tempo_pcm
+from gpu_services.speech_style.profile import condition_tts_text
 
 
 LOGGER = logging.getLogger("echo-cosyvoice")
@@ -35,6 +36,11 @@ DECLICK_FADE_SAMPLES = round(0.015 * OUTPUT_SAMPLE_RATE)  # 15ms, applied at eve
 
 sys.path.insert(0, str(COSYVOICE_ROOT))
 sys.path.insert(0, str(COSYVOICE_ROOT / "third_party" / "Matcha-TTS"))
+
+# Small CPU-side tensor operations feed a GPU model. Large default thread
+# pools oversubscribe this shared host and add per-token dispatch latency.
+torch.set_num_threads(max(1, int(os.environ.get("COSYVOICE_CPU_THREADS", "2"))))
+torch.set_num_interop_threads(1)
 
 from cosyvoice.cli.cosyvoice import AutoModel  # noqa: E402
 app = FastAPI(title="ECHO CosyVoice service")
@@ -55,32 +61,16 @@ def _safe_voice_key(value: str) -> str:
     return key
 
 
-def _clause_pcm(outputs: Iterator[dict]) -> np.ndarray:
-    """Concatenates one clause's model output tensor(s) into int16 PCM.
-
-    CosyVoice emits one tensor per normalized text segment. Resampling each
-    arbitrary network chunk (instead of the complete tensor) was the cause of
-    earlier truncated/choppy playback, so all pieces are joined in the float
-    domain and quantized once.
-    """
-
-    pieces: list[torch.Tensor] = []
+def _clause_pcm(outputs: Iterator[dict]) -> Iterator[np.ndarray]:
+    """Keep one resampling filter across all acoustic packets of a phrase."""
+    resampler = soxr.ResampleStream(MODEL.sample_rate, OUTPUT_SAMPLE_RATE, 1, dtype="float32", quality="HQ")
     for output in outputs:
         speech = output["tts_speech"].detach().to(dtype=torch.float32, device="cpu").reshape(-1)
-        if MODEL.sample_rate != OUTPUT_SAMPLE_RATE:
-            speech = torchaudio.functional.resample(speech, MODEL.sample_rate, OUTPUT_SAMPLE_RATE)
-        pieces.append(speech)
-    if not pieces:
-        return np.zeros(0, dtype=np.int16)
-    speech = torch.cat(pieces)
-    return (
-        speech.clamp(-1.0, 1.0)
-        .mul(32767.0)
-        .round()
-        .to(dtype=torch.int16)
-        .numpy()
-        .astype(np.dtype("<i2"), copy=False)
-    )
+        converted = resampler.resample_chunk(speech.numpy(), last=False)
+        yield np.rint(np.clip(converted, -1, 1) * 32767).astype("<i2")
+    tail = resampler.resample_chunk(np.empty(0, dtype=np.float32), last=True)
+    if tail.size:
+        yield np.rint(np.clip(tail, -1, 1) * 32767).astype("<i2")
 
 
 def _stream_pcm_blocks(pcm: np.ndarray, block_bytes: int = 6_400) -> Iterator[bytes]:
@@ -121,6 +111,12 @@ def health() -> dict:
         "output_sample_rate": OUTPUT_SAMPLE_RATE,
         "fp16": bool(getattr(MODEL, "fp16", False)),
         "cached_voices": len(CACHED_VOICES),
+        "cpu_threads": torch.get_num_threads(),
+        "interop_threads": torch.get_num_interop_threads(),
+        "streaming": True,
+        "jit": os.environ.get("COSYVOICE_LOAD_JIT", "0") == "1",
+        "pacing": "phrases" if os.environ.get("COSYVOICE_PHRASE_PACING", "0") == "1" else "native-stream",
+        "preroll_ms": round(float(os.environ.get("COSYVOICE_PREROLL_SECONDS", "1.5")) * 1000),
     }
 
 
@@ -159,6 +155,7 @@ def inference_auto(
         parsed_profile = None
     if not isinstance(parsed_profile, dict):
         parsed_profile = None
+    conditioned_text, _ = condition_tts_text(text, parsed_profile)
     if key not in CACHED_VOICES:
         if prompt_wav is None:
             raise HTTPException(status_code=409, detail="voice reference is not cached")
@@ -169,39 +166,47 @@ def inference_auto(
     def generate() -> Iterator[bytes]:
         started = time.perf_counter()
         first = True
-        with INFERENCE_LOCK:
-            for clause, pause_after in split_text_with_pauses(text, parsed_profile):
+
+        def source() -> Iterator[bytes]:
+            phrases = (
+                plan_synthesis_phrases(text, parsed_profile)
+                if os.environ.get("COSYVOICE_PHRASE_PACING", "0") == "1"
+                else [(conditioned_text, 0.0)]
+            )
+            for clause, pause_after in phrases:
                 if selected_mode == "zero_shot":
                     outputs = MODEL.inference_zero_shot(
                         clause,
                         prompt_text,
                         torch.empty(0),
                         zero_shot_spk_id=key,
-                        stream=False,
-                        speed=selected_speed,
+                        stream=True,
+                        speed=1.0,
                     )
                 else:
                     outputs = MODEL.inference_cross_lingual(
                         clause,
                         torch.empty(0),
                         zero_shot_spk_id=key,
-                        stream=False,
-                        speed=selected_speed,
+                        stream=True,
+                        speed=1.0,
                     )
-                pcm = cosine_fade_int16(_clause_pcm(outputs), DECLICK_FADE_SAMPLES, DECLICK_FADE_SAMPLES)
-                for block in _stream_pcm_blocks(pcm):
-                    if first:
-                        LOGGER.info(
-                            "first PCM block voice=%s language=%s mode=%s latency_ms=%d",
-                            key,
-                            selected_language,
-                            selected_mode,
-                            round((time.perf_counter() - started) * 1000),
-                        )
-                        first = False
-                    yield block
+                for pcm in fade_stream(_clause_pcm(outputs), DECLICK_FADE_SAMPLES):
+                    yield from _stream_pcm_blocks(pcm)
                 if pause_after > 0:
-                    yield from _stream_pcm_blocks(silence_pcm16(pause_after, OUTPUT_SAMPLE_RATE))
+                    yield from _stream_pcm_blocks(silence_pcm16(pause_after * selected_speed, OUTPUT_SAMPLE_RATE))
+
+        with INFERENCE_LOCK:
+            processed = tempo_pcm(source(), selected_speed, OUTPUT_SAMPLE_RATE)
+            for block in prebuffer_pcm(processed, float(os.environ.get("COSYVOICE_PREROLL_SECONDS", "1.5"))):
+                if first:
+                    LOGGER.info(
+                        "first PCM block voice=%s language=%s mode=%s latency_ms=%d",
+                        key, selected_language, selected_mode,
+                        round((time.perf_counter() - started) * 1000),
+                    )
+                    first = False
+                yield block
 
     return StreamingResponse(
         generate(),

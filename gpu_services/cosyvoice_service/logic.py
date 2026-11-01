@@ -126,6 +126,57 @@ def silence_pcm16(duration_seconds: float, sample_rate: int) -> np.ndarray:
     return np.zeros(sample_count, dtype=np.int16)
 
 
+def plan_synthesis_phrases(
+    text: str, speech_profile: dict[str, Any] | None = None,
+) -> list[tuple[str, float]]:
+    """Keep comma-linked words in one acoustic context, not one model run each.
+
+    Native punctuation supplies within-sentence prosody. Explicit measured
+    pauses remain between sentences/paragraphs. This avoids restarting the
+    autoregressive model for tiny fragments and preserves every spoken word.
+    Decimal points are not sentence boundaries.
+    """
+    if "\n" in text:
+        paragraphs = [part.strip() for part in re.split(r"\n+", text) if part.strip()]
+        planned: list[tuple[str, float]] = []
+        for index, paragraph in enumerate(paragraphs):
+            phrases = plan_synthesis_phrases(paragraph, speech_profile)
+            if phrases and index < len(paragraphs) - 1:
+                phrases[-1] = (phrases[-1][0], _pause_for_delimiter("\n", speech_profile))
+            planned.extend(phrases)
+        return planned
+    boundary = re.compile(r"\.\.\.|…+|\n+|[。！？!?]+|(?<!\d)\.(?!\d)|(?<=\d)\.(?!\d)")
+    result: list[tuple[str, float]] = []
+    start = 0
+    for match in boundary.finditer(text):
+        phrase = text[start:match.end()].strip()
+        start = match.end()
+        if phrase and any(character.isalnum() for character in phrase):
+            delimiter = match.group()
+            result.append((phrase, _pause_for_delimiter(delimiter[0] if delimiter[0] in "!?。！？" else delimiter, speech_profile)))
+    tail = text[start:].strip()
+    if tail:
+        result.append((tail, 0.0))
+    if result:
+        result[-1] = (result[-1][0], 0.0)
+    # A four-word opening followed by a full sentence can finish playback
+    # before the next model pass emits anything. Keep a short opening in the
+    # same streaming acoustic context as the next sentence. Punctuation is
+    # preserved for native prosody; paragraph/thought boundaries stay explicit.
+    grouped: list[tuple[str, float]] = []
+    pending = ""
+    for index, (phrase, pause) in enumerate(result):
+        pending = (pending + " " + phrase).strip()
+        units = len(_CJK_RE.findall(pending)) if contains_cjk(pending) else len(pending.split())
+        minimum = 14 if contains_cjk(pending) else 6
+        thought_end = phrase.endswith(("...", "…")) or "\n" in phrase
+        if units < minimum and not thought_end and index < len(result) - 1:
+            continue
+        grouped.append((pending, pause))
+        pending = ""
+    return grouped
+
+
 def cosine_fade_int16(pcm: np.ndarray, fade_in_samples: int = 0, fade_out_samples: int = 0) -> np.ndarray:
     """Applies a raised-cosine ramp to the start/end of an int16 PCM buffer.
 

@@ -9,6 +9,7 @@ torchvision==0.18.1
 numpy==1.26.4
 scipy==1.13.1
 librosa==0.10.2
+soxr==0.3.7
 opencv-python-headless==4.10.0.84
 fastapi==0.115.6
 python-multipart==0.0.20

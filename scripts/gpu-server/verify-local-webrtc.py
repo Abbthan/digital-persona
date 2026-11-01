@@ -78,6 +78,8 @@ async def main() -> int:
     parser.add_argument("--secret-file", type=Path, default=Path("/home/user/echo/secrets/livetalking.env"))
     parser.add_argument("--idle-seconds", type=float, default=3.0)
     parser.add_argument("--speech-timeout", type=float, default=35.0)
+    parser.add_argument("--capture-seconds", type=float, default=2.0)
+    parser.add_argument("--capture-audio", type=Path)
     parser.add_argument(
         "--utterance",
         default="This is an English voice test. 你好，这是中文语音测试。",
@@ -114,6 +116,9 @@ async def main() -> int:
     speaking = False
     previous_video: np.ndarray | None = None
     stop = asyncio.Event()
+    recorded_audio: list[np.ndarray] = []
+    audio_rate = 48000
+    audio_channels = 2
 
     @peer.on("track")
     def on_track(track) -> None:
@@ -133,7 +138,7 @@ async def main() -> int:
             previous_video = pixels
 
     async def consume_audio() -> None:
-        nonlocal audio_peak
+        nonlocal audio_peak, audio_rate, audio_channels
         await wait_for(lambda: "audio" in tracks, 20, "audio track was not negotiated")
         track = tracks["audio"]
         while not stop.is_set():
@@ -142,6 +147,10 @@ async def main() -> int:
                 samples = frame.to_ndarray()
                 if samples.size:
                     audio_peak = max(audio_peak, int(np.max(np.abs(samples.astype(np.int32)))))
+                    if args.capture_audio:
+                        recorded_audio.append(samples.astype("<i2").reshape(-1))
+                        audio_rate = frame.sample_rate
+                        audio_channels = len(frame.layout.channels)
 
     session_id = ""
     consumers: list[asyncio.Task] = []
@@ -198,7 +207,7 @@ async def main() -> int:
                 if response.status != 200:
                     raise RuntimeError(f"speech dispatch returned HTTP {response.status}: {await response.text()}")
             await wait_for(lambda: audio_peak > 100, args.speech_timeout, "no non-silent synthesized audio arrived")
-            await asyncio.sleep(2)
+            await asyncio.sleep(args.capture_seconds)
 
             if video_frames < 20:
                 raise RuntimeError(f"too few video frames arrived: {video_frames}")
@@ -212,6 +221,12 @@ async def main() -> int:
                 "audio_peak": audio_peak,
                 "selected_candidate_types": selected_candidate_types(peer),
             }
+            if args.capture_audio and recorded_audio:
+                import wave
+                with wave.open(str(args.capture_audio), "wb") as recording:
+                    recording.setparams((audio_channels, 2, audio_rate, 0, "NONE", "not compressed"))
+                    recording.writeframes(np.concatenate(recorded_audio).tobytes())
+                result["captured_audio_seconds"] = round(sum(x.size for x in recorded_audio) / audio_rate / audio_channels, 3)
             print(json.dumps(result, ensure_ascii=False))
             return 0
         finally:
