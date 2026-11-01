@@ -84,6 +84,8 @@ class ConversationIngestRequest(BaseModel):
     role: str = Field(min_length=1, max_length=40)
     content: str = Field(max_length=20_000)
     created_at: str | None = Field(default=None, max_length=80)
+    target_authorship: Literal["target", "unknown", "mixed"] = "unknown"
+    scripted: bool = False
 
 
 class SourceDocumentIngestRequest(BaseModel):
@@ -91,12 +93,25 @@ class SourceDocumentIngestRequest(BaseModel):
     asset_id: str = Field(min_length=1, max_length=160)
     file_name: str = Field(min_length=1, max_length=500)
     source_url: str = Field(min_length=1, max_length=2_000)
+    target_authorship: Literal["target", "unknown", "mixed"] = "unknown"
+    scripted: bool = False
 
 
 class RetrieveRequest(BaseModel):
     persona_id: str = Field(min_length=1, max_length=160)
     query: str = Field(min_length=1, max_length=2_000)
     top_k: int = Field(default=6, ge=1, le=20)
+    purpose: Literal["memory", "style"] = "memory"
+
+
+class SourceMediaIngestRequest(SourceDocumentIngestRequest):
+    media_type: Literal["audio", "video"]
+
+
+class StyleAttributionRequest(BaseModel):
+    persona_id: str = Field(min_length=1, max_length=160)
+    source_id: str = Field(min_length=1, max_length=160)
+    target_authorship: Literal["target", "unknown", "mixed"]
 
 
 class ComposePromptRequest(RetrieveRequest):

@@ -10,9 +10,45 @@ import {
   submitAvatarTraining,
   TRAINING_RELEVANT_ASSET_TYPES,
 } from "@/back_end/services/persona-training";
-import { deleteRagSource } from "@/back_end/services/persona-rag";
+import { deleteRagSource, ingestDocument, ingestMedia, setStyleAttribution } from "@/back_end/services/persona-rag";
+import { PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 
 export type DeleteAssetResponseBody = { ok: true } | { ok: false; error: string };
+
+/** Attest the speaker/author without changing face training or the voice reference. */
+export async function PATCH(request: Request,
+  { params }: { params: Promise<{ id: string; assetId: string }> }) {
+  const user = await getCurrentUser().catch(() => null);
+  if (!user?.emailVerified) return NextResponse.json({ ok: false, error: "You're not logged in." }, { status: 401 });
+  const body = await request.json().catch(() => null);
+  if (!body || !["target", "unknown", "mixed"].includes(body.targetAuthorship)) {
+    return NextResponse.json({ ok: false, error: "Invalid speaker/author attribution." }, { status: 400 });
+  }
+  const { id: personaId, assetId } = await params;
+  const db = getDb();
+  try {
+    const asset = await db.personaAsset.findFirst({ where: { id: assetId, personaId, persona: { userId: user.id } } });
+    if (!asset) return NextResponse.json({ ok: false, error: "Upload not found." }, { status: 404 });
+    if (!["audio", "video", "text", "image"].includes(asset.type)) return NextResponse.json({ ok: false, error: "This source cannot supply wording examples." }, { status: 400 });
+    const previous = asset.metadata && typeof asset.metadata === "object" && !Array.isArray(asset.metadata) ? asset.metadata : {};
+    // Revocation takes effect immediately, before any long reindex operation.
+    const updated = await setStyleAttribution(personaId, assetId, body.targetAuthorship);
+    if (!updated) return NextResponse.json({ ok: false, error: "Style service unavailable; please retry." }, { status: 503 });
+    await db.personaAsset.update({ where: { id: assetId }, data: { metadata: { ...previous, targetAuthorship: body.targetAuthorship } } });
+    const name = typeof previous.originalName === "string" ? previous.originalName : asset.url.split("/").pop() || "source.txt";
+    if (asset.type === "audio" || asset.type === "video") {
+      const queued = await ingestMedia(personaId, assetId, name, asset.type, body.targetAuthorship,
+        previous.source === PERSONA_ASSET_SOURCES.guidedFacialScan);
+      if (!queued) return NextResponse.json({ ok: false, error: "Attribution saved; transcription queue unavailable. Please retry." }, { status: 503 });
+    } else {
+      after(async () => { await ingestDocument(personaId, assetId, name, body.targetAuthorship); });
+    }
+    return NextResponse.json({ ok: true, targetAuthorship: body.targetAuthorship });
+  } catch (error) {
+    console.error("Style attribution update failed", { personaId, assetId, error });
+    return NextResponse.json({ ok: false, error: "Couldn't update wording evidence. Please retry." }, { status: 500 });
+  }
+}
 
 export async function DELETE(
   _request: Request,
@@ -97,7 +133,7 @@ export async function DELETE(
     // Text documents and compacted social-profile notes are indexed in the
     // private vector store. Their asset ID gives us an exact delete rather
     // than leaving old personal context behind after removal.
-    if (asset.type === "text" || asset.type === "social_link") {
+    if (["text", "image", "social_link", "audio", "video", "facial_scan"].includes(asset.type)) {
       after(async () => {
         try {
           await deleteRagSource(personaId, asset.id);

@@ -26,7 +26,8 @@ function privatePersonaMediaUrl(personaId: string, assetId: string): string {
  * and embeds it into the persona's vector store. Re-ingesting the same
  * assetId replaces its prior chunks rather than duplicating them.
  */
-export async function ingestDocument(personaId: string, assetId: string, fileName: string): Promise<boolean> {
+export async function ingestDocument(personaId: string, assetId: string, fileName: string,
+  targetAuthorship: "target" | "unknown" | "mixed" = "unknown"): Promise<boolean> {
   const serverUrl = liveTalkingServerUrl();
   const token = await systemToken(personaId);
   if (!serverUrl || !token) return false;
@@ -43,6 +44,7 @@ export async function ingestDocument(personaId: string, assetId: string, fileNam
         asset_id: assetId,
         file_name: fileName,
         source_url: privatePersonaMediaUrl(personaId, assetId),
+        target_authorship: targetAuthorship,
       }),
       signal: AbortSignal.timeout(12_000),
     });
@@ -50,6 +52,56 @@ export async function ingestDocument(personaId: string, assetId: string, fileNam
   } catch {
     return false;
   }
+}
+
+export async function setStyleAttribution(personaId: string, sourceId: string,
+  targetAuthorship: "target" | "unknown" | "mixed"): Promise<boolean> {
+  const serverUrl = liveTalkingServerUrl();
+  const token = await systemToken(personaId);
+  if (!serverUrl || !token) return false;
+  try {
+    const response = await fetch(`${serverUrl}/api/rag/style-attribution`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ persona_id: personaId, source_id: sourceId, target_authorship: targetAuthorship }),
+      signal: AbortSignal.timeout(3_000),
+    });
+    return response.ok;
+  } catch { return false; }
+}
+
+export async function getStyleSourceStatuses(personaId: string): Promise<Record<string, { state: string; progress?: number }>> {
+  const serverUrl = liveTalkingServerUrl();
+  const token = await systemToken(personaId);
+  if (!serverUrl || !token) return {};
+  try {
+    const response = await fetch(`${serverUrl}/api/rag/style-status/${encodeURIComponent(personaId)}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return {};
+    const body = await response.json();
+    return body.ok && body.sources && typeof body.sources === "object" ? body.sources : {};
+  } catch { return {}; }
+}
+
+/** Queue full audio/video transcription on the backend; never buffer media here. */
+export async function ingestMedia(
+  personaId: string, assetId: string, fileName: string, mediaType: "audio" | "video",
+  targetAuthorship: "target" | "unknown" | "mixed" = "unknown", scripted = false,
+): Promise<boolean> {
+  const serverUrl = liveTalkingServerUrl();
+  const token = await systemToken(personaId);
+  if (!serverUrl || !token) return false;
+  try {
+    const response = await fetch(`${serverUrl}/api/rag/ingest/media-from-url`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ persona_id: personaId, asset_id: assetId, file_name: fileName,
+        source_url: privatePersonaMediaUrl(personaId, assetId), media_type: mediaType,
+        target_authorship: targetAuthorship, scripted }),
+      signal: AbortSignal.timeout(3_000),
+    });
+    return response.ok;
+  } catch { return false; }
 }
 
 /**
@@ -145,6 +197,7 @@ export async function composePersonaPrompt(
   personaName: string,
   query: string,
   topK = 6,
+  purpose: "memory" | "style" = "memory",
 ): Promise<ComposedPersonaPrompt | null> {
   const serverUrl = liveTalkingServerUrl();
   const token = await systemToken(personaId);
@@ -154,7 +207,7 @@ export async function composePersonaPrompt(
     const response = await fetch(`${serverUrl}/api/rag/compose-prompt`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ persona_id: personaId, persona_name: personaName, query: query.slice(0, 2_000), top_k: Math.min(Math.max(topK, 1), 8) }),
+      body: JSON.stringify({ persona_id: personaId, persona_name: personaName, query: query.slice(0, 2_000), top_k: Math.min(Math.max(topK, 1), 8), purpose }),
       // Retrieval is best-effort grounding, not a required step — the
       // caller already treats a null result as "no retrieved material"
       // rather than a failure. getPersonaReply fires two of these in

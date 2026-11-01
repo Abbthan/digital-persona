@@ -12,7 +12,9 @@ def _hits(title: str, values: list[dict[str, Any]]) -> str:
     for index, hit in enumerate(values, 1):
         value = str(hit.get("text", "")).strip()
         if value:
-            lines.append(f"[{index}] {value}")
+            role = (hit.get("metadata") or {}).get("role")
+            provenance = "Generated previous reply; continuity only, never style evidence. " if role in {"persona", "assistant"} else ""
+            lines.append(f"[{index}] {provenance}{value}")
     return "\n".join(lines) if len(lines) > 1 else ""
 
 

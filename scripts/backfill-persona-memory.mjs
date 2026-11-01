@@ -16,7 +16,10 @@ const secret = process.env.LIVETALKING_SESSION_SECRET;
 const appOrigin = (process.env.PUBLIC_APP_ORIGIN || "https://echodigitalpersona.com").replace(/\/+$/, "");
 const targetIds = (process.env.PERSONA_MEMORY_PERSONA_IDS || "").split(",").map(id=>id.trim()).filter(Boolean);
 const includeChat = process.env.PERSONA_MEMORY_INCLUDE_CHAT === "1";
+const includeMedia = process.env.PERSONA_MEMORY_INCLUDE_MEDIA === "1";
+const confirmedSpeaker = process.env.PERSONA_MEMORY_CONFIRMED_SPEAKER === "1";
 if (includeChat && !targetIds.length) throw new Error("Chat backfill requires explicit PERSONA_MEMORY_PERSONA_IDS.");
+if ((includeMedia || confirmedSpeaker) && !targetIds.length) throw new Error("Media backfill/confirmation requires explicit PERSONA_MEMORY_PERSONA_IDS.");
 
 if (!databaseUrl || !memoryUrl || !secret) {
   throw new Error("DATABASE_URL, LIVETALKING_SERVER_URL, and LIVETALKING_SESSION_SECRET are required.");
@@ -85,7 +88,7 @@ try {
       AND "voiceRefTranscript" IS NOT NULL
       AND length(trim("voiceRefTranscript")) > 0
   `, [targetIds]);
-  for (const persona of voices) {
+  for (const persona of includeMedia ? [] : voices) {
     try {
       await post("/api/rag/ingest/conversation", persona.id, {
         persona_id: persona.id,
@@ -98,6 +101,31 @@ try {
     } catch (error) {
       failed += 1;
       console.error(`Failed voice transcript ${persona.id}:`, error instanceof Error ? error.message : error);
+    }
+  }
+  if (includeMedia) {
+    const {rows: media} = await pool.query(`
+      SELECT id, "personaId", type, url, metadata FROM "PersonaAsset"
+      WHERE "personaId" = ANY($1::text[]) AND type IN ('audio'::"AssetType",'video'::"AssetType")
+      ORDER BY "createdAt" ASC
+    `,[targetIds]);
+    for (const asset of media) {
+      try {
+        const metadata = asset.metadata && typeof asset.metadata === "object" ? asset.metadata : {};
+        const attribution = confirmedSpeaker ? "target" : metadata.targetAuthorship || "unknown";
+        const result = await post("/api/rag/ingest/media-from-url", asset.personaId, {
+          persona_id: asset.personaId, asset_id: asset.id, file_name: originalName(asset),
+          source_url: `${appOrigin}/api/internal/persona-media/${encodeURIComponent(asset.personaId)}/${encodeURIComponent(asset.id)}`,
+          media_type: asset.type, target_authorship: attribution,
+          scripted: metadata.source === "facial_camera" || metadata.scripted === true,
+        });
+        if (confirmedSpeaker) await pool.query('UPDATE "PersonaAsset" SET metadata = coalesce(metadata, \'{}\'::jsonb) || $2::jsonb WHERE id=$1',
+          [asset.id,JSON.stringify({targetAuthorship:"target"})]);
+        console.log(`Media ${asset.id}: ${result.status}`);
+      } catch (error) {
+        failed += 1;
+        console.error(`Media queue failed ${asset.id}:`, error instanceof Error ? error.message : error);
+      }
     }
   }
   if (includeChat) {

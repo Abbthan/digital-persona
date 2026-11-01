@@ -44,3 +44,51 @@ into a normal chat message. Its background message ingestion feeds this service
 without creating a separate voice-message workflow. Graph-backed follow-up
 questions are inserted into the bounded prompt used by the existing initiative
 logic.
+
+## Source-only style and full-recording ingestion (1 November 2026)
+
+The deployed 3090 launchers are in `scripts/gpu-server/memory-3090/`: CPU
+embeddings/extraction in an isolated environment, private local graph/data,
+and localhost endpoints. The older A800/tmux/disk assumptions above are
+historical, not instructions to move the current services back there.
+
+Style has its own `style-evidence.sqlite3`, not an unfiltered semantic query
+over prior generated replies. `purpose=style` on compose-prompt uses only
+owner-confirmed target speech/writing. Unverified/mixed material and scripted
+readings do not establish spontaneous habits. English and Chinese statistics,
+original examples and limited-evidence indicators remain separate. Generated
+replies stay raw conversation continuity but cannot add new inferred style or
+biographical facts; legacy generated style/facts are filtered on retrieval.
+
+`POST /api/rag/ingest/media-from-url` persists a job and returns 202. A serial
+backend worker downloads the existing private media using a newly signed,
+persona-scoped token, converts audio into 30-second WAV parts, transcribes all
+parts with the existing STT, and indexes the complete transcript. No media
+bytes, Base64, embeddings or ASR processing enter the Cloudflare Worker.
+The queue is in `media-jobs.sqlite3`, retries interrupted jobs on process
+restart and exposes a scoped per-source status. A silent/passive recording
+finishes with an explicit no-speech status rather than invented words.
+Current bounds: 110 MB fetched, 20 minutes/40 parts, 180-second conversion
+timeout. The timestamped transcript is coarse audio-chunk timing, not forced
+alignment or speaker diarisation. Mixed/uncertain speakers remain excluded
+from style until the owner identifies the target; no automatic speaker-ID
+accuracy claim is made.
+
+`POST /api/rag/style-attribution` updates source eligibility immediately.
+The owner-checked asset PATCH and bilingual upload-list checkbox expose it
+without changing avatar training or replacing the cloned voice. Revocation
+and deletion propagate to the style store and queued/in-flight media jobs.
+Status endpoints return metadata only; original wording stays private.
+
+The first current-persona backfill confirmed that both audible recordings
+contain the same 366-character scripted reading and the other video has no
+audio. All jobs completed, but the spontaneous-style corpus is correctly
+empty. Do not claim that this repair trained a faithful individual style:
+new natural conversation/writing examples are still needed.
+
+Evaluation: `test_style_evidence.py` plus `verify-style-pipeline.py` cover
+source provenance, bilingual paths, isolation, revocation and cleanup.
+`scripts/test-persona-style.mjs` guards the Worker integration. Deterministic
+held-out sentences do not enter the style prompt; an end-to-end blind style
+evaluation must also prevent their factual-RAG retrieval. This implementation
+does not fine-tune an LLM or establish a human-rated fidelity score.

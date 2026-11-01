@@ -11,7 +11,7 @@ import {
   submitAvatarTraining,
   TRAINING_RELEVANT_ASSET_TYPES,
 } from "@/back_end/services/persona-training";
-import { ingestDocument } from "@/back_end/services/persona-rag";
+import { getStyleSourceStatuses, ingestDocument, ingestMedia } from "@/back_end/services/persona-rag";
 import { deletePersonaMedia, uploadPersonaMedia } from "@/back_end/services/storage";
 import { isDedicatedFacialVideoSource, PERSONA_ASSET_SOURCES } from "@/shared/persona-asset-sources";
 import { PERSONA_UPLOAD_LIMITS, planLimit } from "@/shared/persona-upload-limits";
@@ -120,13 +120,15 @@ export type PersonaAssetDTO = {
   name: string;
   size: number | null;
   createdAt: string;
+  targetAuthorship?: "target" | "unknown" | "mixed";
+  styleEvidenceStatus?: string;
 };
 
 export type ListAssetsResponseBody =
   | { ok: true; assets: PersonaAssetDTO[] }
   | { ok: false; error: string };
 
-function assetMetadata(metadata: unknown): { originalName?: unknown; size?: unknown; source?: unknown } {
+function assetMetadata(metadata: unknown): { originalName?: unknown; size?: unknown; source?: unknown; targetAuthorship?: unknown } {
   return metadata && typeof metadata === "object" ? metadata as { originalName?: unknown; size?: unknown } : {};
 }
 
@@ -155,6 +157,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       orderBy: { createdAt: "desc" },
       select: { id: true, type: true, metadata: true, createdAt: true },
     });
+    const styleStatuses = await getStyleSourceStatuses(personaId);
 
     return NextResponse.json<ListAssetsResponseBody>({
       ok: true,
@@ -167,6 +170,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
           name: typeof metadata.originalName === "string" ? metadata.originalName : "Untitled upload",
           size: typeof metadata.size === "number" ? metadata.size : null,
           createdAt: asset.createdAt.toISOString(),
+          targetAuthorship: metadata.targetAuthorship === "target" || metadata.targetAuthorship === "mixed" ? metadata.targetAuthorship : "unknown",
+          styleEvidenceStatus: styleStatuses[asset.id]?.state,
         };
       }),
     });
@@ -213,6 +218,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const source = typeof sourceValue === "string" && ALLOWED_SOURCES.has(sourceValue) ? sourceValue : "upload";
   const replaceExisting = formData?.get("replaceExisting") === "true";
   const deferTraining = formData?.get("deferTraining") === "true";
+  const attribution = formData?.get("targetAuthorship");
+  const targetAuthorship = attribution === "target" || attribution === "mixed" ? attribution : "unknown";
 
   console.info("[persona-upload] parsed", {
     personaId,
@@ -277,7 +284,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const asset = replaceableAsset
       ? await db.personaAsset.update({
         where: { id: replaceableAsset.id },
-        data: { url: path, metadata: { originalName: file.name, size: file.size, mimeType: file.type, source } },
+        data: { url: path, metadata: { originalName: file.name, size: file.size, mimeType: file.type, source, targetAuthorship } },
         select: { id: true, type: true },
       })
       : await db.personaAsset.create({
@@ -285,7 +292,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           personaId,
           type,
           url: path,
-          metadata: { originalName: file.name, size: file.size, mimeType: file.type, source },
+          metadata: { originalName: file.name, size: file.size, mimeType: file.type, source, targetAuthorship },
         },
         select: { id: true, type: true },
       });
@@ -360,10 +367,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       console.info("[persona-rag] queued after upload", { personaId, assetId: asset.id });
       after(async () => {
         try {
-          await ingestDocument(personaId, asset.id, assetName);
+          await ingestDocument(personaId, asset.id, assetName, targetAuthorship);
         } catch (ragError) {
           console.error("Background document ingestion start failed", ragError);
         }
+      });
+    }
+    if (type === "audio" || type === "video") {
+      // The GPU API only persists a job here; all downloading/decoding/STT
+      // continues durably off the Worker and never blocks upload or playback.
+      after(async () => {
+        const indexed = await ingestMedia(personaId, asset.id, file.name, type, targetAuthorship,
+          source === PERSONA_ASSET_SOURCES.guidedFacialScan);
+        if (!indexed) console.warn("[persona-rag] media queue unavailable", { personaId, assetId: asset.id });
       });
     }
 

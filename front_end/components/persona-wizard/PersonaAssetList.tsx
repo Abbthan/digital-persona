@@ -46,6 +46,20 @@ function formatAssetType(asset: PersonaAssetDTO, locale: "en" | "zh") {
   return asset.type.replaceAll("_", " ");
 }
 
+function styleStatusLabel(state: string | undefined, locale: "en" | "zh") {
+  const labels: Record<string, [string, string]> = {
+    scripted: ["Scripted reading — excluded from spontaneous style", "照读稿件：不用于学习自然说话风格"],
+    no_speech: ["No speech/audio — no wording evidence", "未检测到语音：没有语言风格依据"],
+    ready: ["Verified original wording available", "已收录经确认的本人表达"],
+    unverified: ["Speaker/author not yet confirmed", "说话者／作者尚未确认"],
+    queued: ["Source processing queued", "已排队处理语料"],
+    running: ["Transcribing/indexing source…", "正在转写并整理语料…"],
+    failed: ["Source processing failed — retry confirmation", "语料处理失败：请重新确认以重试"],
+  };
+  const pair = state ? labels[state] : undefined;
+  return pair ? pair[locale === "zh" ? 1 : 0] : null;
+}
+
 // Used by both the initial upload wizard and later persona management, so the
 // owner sees the same sortable/selectable list and irreversible-delete flow
 // at either point in the persona lifecycle.
@@ -60,6 +74,30 @@ export function PersonaAssetList({ personaId, refreshToken = 0, onChanged }: Per
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [deleting, setDeleting] = useState(false);
+  const [styleSaving, setStyleSaving] = useState<string | null>(null);
+  const [styleNotice, setStyleNotice] = useState<string | null>(null);
+
+  async function setStyleSource(asset: PersonaAssetDTO, confirmed: boolean) {
+    setStyleSaving(asset.id);
+    setStyleNotice(null);
+    setError(null);
+    try {
+      const response = await fetch(`/api/personas/${personaId}/assets/${asset.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetAuthorship: confirmed ? "target" : "unknown" }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "Couldn't save wording evidence.");
+      setAssets(current => current.map(item => item.id === asset.id ? { ...item,
+        targetAuthorship: confirmed ? "target" : "unknown",
+        styleEvidenceStatus: ["scripted", "no_speech"].includes(item.styleEvidenceStatus || "")
+          ? item.styleEvidenceStatus : confirmed ? "queued" : "unverified",
+      } : item));
+      setStyleNotice(locale === "zh" ? "已保存。语音/文字处理将在后台继续；照读的稿件不会用于学习自然说话风格。" : "Saved. Source processing continues in the background; scripted readings are excluded from spontaneous style.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : (locale === "zh" ? "保存失败，请重试。" : "Couldn't save. Please retry."));
+    } finally { setStyleSaving(null); }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +193,9 @@ export function PersonaAssetList({ personaId, refreshToken = 0, onChanged }: Per
 
         {assetsExpanded && (
           <>
+            <p className="mt-sm font-text text-fine-print text-ink-muted-48">
+              {locale === "zh" ? "只将本人说或写的内容标记为风格依据；多人对话、引文和照读稿件不应视为自然表达。" : "Confirm only this person’s own speech or writing as wording evidence—not mixed speakers, quotations or scripted readings."}
+            </p>
             <div className="mt-sm flex items-center justify-between gap-sm border-b border-hairline pb-sm">
               <div className="flex items-center gap-xxs" aria-label="Sort uploads">
                 <span className="font-text text-fine-print text-ink-muted-48">{locale === "zh" ? "排序：" : "Order:"}</span>
@@ -185,6 +226,18 @@ export function PersonaAssetList({ personaId, refreshToken = 0, onChanged }: Per
                       <p className="mt-xxs font-text text-fine-print text-ink-muted-48">
                         {formatAssetType(asset, locale)} · {formatFileSize(asset.size)} · {new Date(asset.createdAt).toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US")}
                       </p>
+                      {["audio", "video", "text", "image"].includes(asset.type) && (
+                        <label className="mt-xs flex items-start gap-xs font-text text-fine-print text-ink-muted-80">
+                          <input type="checkbox" className="mt-[2px] h-4 w-4 shrink-0 accent-primary"
+                            checked={asset.targetAuthorship === "target"} disabled={styleSaving !== null}
+                            onChange={event => setStyleSource(asset, event.target.checked)} />
+                          <span>{locale === "zh" ? "确认：此文件中的语言表达出自本人" : "Confirmed: this file’s wording is this person’s own"}
+                            {styleSaving === asset.id && (locale === "zh" ? " · 保存中…" : " · Saving…")}</span>
+                        </label>
+                      )}
+                      {styleStatusLabel(asset.styleEvidenceStatus, locale) && (
+                        <p className="mt-xxs font-text text-fine-print text-ink-muted-48">{styleStatusLabel(asset.styleEvidenceStatus, locale)}</p>
+                      )}
                     </div>
                     {selectionMode ? (
                       <input type="checkbox" aria-label={`Select ${asset.name}`} checked={selectedAssetIds.includes(asset.id)} onChange={() => toggleAssetSelection(asset.id)} className="h-4 w-4 flex-shrink-0 accent-primary" />
@@ -201,6 +254,7 @@ export function PersonaAssetList({ personaId, refreshToken = 0, onChanged }: Per
         )}
       </div>
       {error && <p role="alert" className="mt-sm font-text text-caption text-red-500">{error}</p>}
+      {styleNotice && <p role="status" className="mt-sm font-text text-caption text-ink-muted-80">{styleNotice}</p>}
 
       <Modal open={confirmation !== null} onClose={() => setConfirmation(null)} maxWidthClassName="max-w-[28rem]">
         {confirmation && (
